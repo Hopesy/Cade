@@ -41,43 +41,70 @@ public class ConsoleUserInterface : IUserInterface
 
     public string GetInput(string prompt, string path, string modelId)
     {
-        // 确保 prompt 只是 >>
         prompt = ">>";
-        var borderColor = "grey dim";
         var width = AnsiConsole.Profile.Width;
-        var contentWidth = width > 2 ? width - 2 : 10;
+        var contentWidth = Math.Max(0, width - 2); // 减去左右边框
+        
+        var borderColor = "[grey]";
+        var promptColor = $"[bold {SecondaryColor.ToMarkup()}]";
+        var primaryColor = $"[bold {PrimaryColor.ToMarkup()}]";
 
-        // 1. Render Top Rounded Border
-        // ╭──────────────────╮
-        // 使用 string 构造，避免 Rule 的直线
-        AnsiConsole.MarkupLine($"[{borderColor}]╭{new string('─', contentWidth)}╮[/]");
+        // 1. 渲染顶部边框
+        AnsiConsole.MarkupLine($"{borderColor}╭{new string('─', contentWidth)}╮[/]");
 
-        // 2. Ask Input with Left Border
-        // │ >> 
-        var input = AnsiConsole.Prompt(
-            new TextPrompt<string>($"[{borderColor}]│[/] [bold {SecondaryColor.ToMarkup()}]{prompt}[/] ")
-                .PromptStyle("white")
-                .AllowEmpty());
+        // 2. 渲染中间行 (Prompt)
+        // 我们先打印左边框和提示符，不换行
+        AnsiConsole.Markup($"{borderColor}│[/] {promptColor}{prompt}[/] ");
+        
+        // 记录输入光标的起始位置
+        var (inputLeft, inputTop) = Console.GetCursorPosition();
 
-        // 3. Render Bottom Rounded Border
-        // ╰──────────────────╯
-        AnsiConsole.MarkupLine($"[{borderColor}]╰{new string('─', contentWidth)}╯[/]");
+        // 为了打印底部边框和状态栏，我们需要先换行
+        Console.WriteLine(); 
 
-        // 4. Render Status Bar (Below Input)
+        // 3. 渲染底部边框
+        AnsiConsole.MarkupLine($"{borderColor}╰{new string('─', contentWidth)}╯[/]");
+
+        // 4. 渲染状态栏
         var grid = new Grid();
         grid.Width(width);
         grid.AddColumn(new GridColumn().LeftAligned().PadRight(2));
         grid.AddColumn(new GridColumn().RightAligned());
-
-        var pathMarkup = $"[grey]{Markup.Escape(path)}[/]";
-        // 模型ID不带前缀，只显示ID
-        var modelMarkup = $"[bold {PrimaryColor.ToMarkup()}]{modelId}[/]";
-
-        grid.AddRow(pathMarkup, modelMarkup);
+        grid.AddRow($"[grey]{Markup.Escape(path)}[/]", $"{primaryColor}{modelId}[/]");
         AnsiConsole.Write(grid);
-        AnsiConsole.WriteLine(); // 增加一点间距
         
-        return input;
+        // 记录结束位置
+        var (endLeft, endTop) = Console.GetCursorPosition();
+
+        // 5. 将光标移动回输入位置
+        try 
+        {
+            Console.SetCursorPosition(inputLeft, inputTop);
+        }
+        catch
+        {
+            // 如果发生异常（如滚屏导致坐标失效），则不回溯，直接在当前位置输入（降级体验）
+        }
+        
+        // 6. 读取用户输入
+        var input = Console.ReadLine();
+
+        // 7. 恢复光标到UI组件之后，防止后续输出覆盖底部边框
+        try
+        {
+            // Console.ReadLine 会导致光标下移一行（进入底部边框行）
+            // 我们需要确保光标移动到状态栏之后
+            if (Console.CursorTop < endTop)
+            {
+                Console.SetCursorPosition(0, endTop);
+            }
+        }
+        catch
+        {
+            // 忽略光标移动错误
+        }
+        
+        return input ?? string.Empty;
     }
 
     public void ShowResponse(string content)
