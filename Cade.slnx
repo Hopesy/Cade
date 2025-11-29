@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Cade\Cade.csproj" />
+  <Project Path="Cade.Provider\Cade.Provider.csproj" />
+</Solution>
