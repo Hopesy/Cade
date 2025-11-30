@@ -38,13 +38,10 @@ public class CadeHostedService : BackgroundService
         // 初始化 Provider 和模型
         try 
         {
-            // 1. 确保默认配置存在（同步 settings.json）
             await _configService.EnsureDefaultConfigExistsAsync();
-
-            // 2. 获取并加载配置
+            
             var currentConfigName = _configuration["AppSettings:CurrentProviderConfig"] ?? "default";
-            // 如果 configService 之前加载过 default，这里可能需要强制重新加载以确保同步
-            await _configService.SetCurrentConfigFileNameAsync(currentConfigName); // 确保 service 状态正确
+            await _configService.SetCurrentConfigFileNameAsync(currentConfigName);
             
             var config = await _configService.LoadConfigurationAsync(currentConfigName);
             
@@ -54,13 +51,11 @@ public class CadeHostedService : BackgroundService
             }
             else
             {
-                 // Fallback
                  config = await _configService.LoadConfigurationAsync("default");
                  if (config != null)
                     await _providerService.LoadModelsFromConfigAsync(config, "default");
             }
 
-            // 3. 设置当前模型
             var savedModelId = _configuration["AppSettings:CurrentModelId"];
             var availableModels = _providerService.GetAvailableModels();
             
@@ -73,7 +68,6 @@ public class CadeHostedService : BackgroundService
                 else
                 {
                     _viewModel.CurrentModelId = availableModels.First().Id;
-                    // 可选：更新回配置文件？暂时不强制，等待用户操作
                 }
             }
             else
@@ -81,7 +75,6 @@ public class CadeHostedService : BackgroundService
                 _viewModel.CurrentModelId = "No Models Available";
             }
             
-            // 4. 设置主题 (暂未用到 ViewModel 中的 Theme 做逻辑，仅存储)
             _viewModel.Theme = _configuration["AppSettings:Theme"] ?? "Dark";
 
         }
@@ -90,54 +83,58 @@ public class CadeHostedService : BackgroundService
             _ui.ShowError($"初始化AI服务失败: {ex.Message}");
         }
 
-        // 1. 显示欢迎界面
         _ui.ShowWelcome();
 
-        // 2. 进入主交互循环
+        // 主交互循环
         while (!stoppingToken.IsCancellationRequested)
         {
-            try
+            if (_ui.KeyAvailable)
             {
-                // 渲染状态栏 (Path | Model)
-                _viewModel.CurrentPath = Environment.CurrentDirectory; // 实时更新路径
-                // _ui.RenderStatusBar(_viewModel.CurrentPath, _viewModel.CurrentModelId); // 已移除，集成到 GetInput 中
+                var key = Console.ReadKey(true);
+                var input = _ui.HandleKeyPress(key);
 
-                // 从 UI 获取输入
-                string input = _ui.GetInput("User", _viewModel.CurrentPath, _viewModel.CurrentModelId);
-
-                if (string.IsNullOrWhiteSpace(input)) continue;
-
-                // 处理命令
-                if (input.Trim().StartsWith("/"))
+                if (input != null)
                 {
-                    await HandleCommandAsync(input);
-                    continue;
+                    if (input.Trim().StartsWith("/"))
+                    {
+                        await HandleCommandAsync(input);
+                    }
+                    else
+                    {
+                        // 后台处理 AI 请求
+                        _ = Task.Run(() => ProcessAiInputAsync(input));
+                    }
                 }
-                
-                // 处理退出命令 (兼容旧习惯)
-                if (input.Trim().ToLower() is "exit" or "quit")
-                {
-                    _ui.ShowResponse("[grey]正在关闭系统...再见。[/]");
-                    _appLifetime.StopApplication();
-                    break;
-                }
-
-                // 更新 ViewModel
-                _viewModel.CurrentInput = input;
-
-                // 执行提交命令，并带上 UI 加载状态
-                await _ui.ShowThinkingAsync(async () => 
-                {
-                    await _viewModel.SubmitCommand.ExecuteAsync(null);
-                });
-
-                // 显示结果
-                _ui.ShowResponse(_viewModel.LastResponse);
             }
-            catch (Exception ex)
-            {
-                _ui.ShowError(ex.Message);
-            }
+            
+            // Sync Status
+            _viewModel.CurrentPath = Environment.CurrentDirectory;
+            _ui.SetStatus(_viewModel.CurrentPath, _viewModel.CurrentModelId);
+            
+            _ui.Update();
+            await Task.Delay(10, stoppingToken);
+        }
+    }
+
+    private async Task ProcessAiInputAsync(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return;
+
+        _ui.SetProcessing(true, "正在思考..."); // New: Set title for processing
+        try
+        {
+            _viewModel.CurrentInput = input;
+            
+            await _viewModel.SubmitCommand.ExecuteAsync(null);
+            _ui.ShowResponse(_viewModel.LastResponse);
+        }
+        catch (Exception ex)
+        {
+            _ui.ShowError(ex.Message);
+        }
+        finally
+        {
+            _ui.SetProcessing(false);
         }
     }
 
@@ -183,22 +180,26 @@ public class CadeHostedService : BackgroundService
             return;
         }
 
-        // 使用 Spectre.Console 选择 Prompt
-        var selectedModel = AnsiConsole.Prompt(
-            new SelectionPrompt<string>()
-                .Title("请选择模型:")
-                .PageSize(10)
-                .AddChoices(models.Select(m => m.Id)));
+        string selectedModel = null!;
 
-        _viewModel.CurrentModelId = selectedModel;
-        
-        // 更新 appsettings.json
-        await UpdateAppSettingsAsync("CurrentModelId", selectedModel);
-        
-        _ui.ShowResponse($"已切换模型为: [bold green]{selectedModel}[/]");
+        // 使用 SafeRender 包裹交互式 Prompt，确保输入行被正确清除和恢复
+        _ui.SafeRender(() => 
+        {
+            selectedModel = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("请选择模型:")
+                    .PageSize(10)
+                    .AddChoices(models.Select(m => m.Id)));
+        });
+
+        if (selectedModel != null)
+        {
+            _viewModel.CurrentModelId = selectedModel;
+            await UpdateAppSettingsAsync("CurrentModelId", selectedModel);
+            _ui.ShowResponse($"已切换模型为: [bold green]{selectedModel}[/]");
+        }
     }
 
-    // 简单的 appsettings.json 更新帮助方法 (注意：这里简单实现，生产环境建议用专门的 Service)
     private async Task UpdateAppSettingsAsync(string key, string value)
     {
         try 

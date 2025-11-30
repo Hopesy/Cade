@@ -1,170 +1,291 @@
+using System;
+using System.Text;
 using Cade.Interfaces;
 using Spectre.Console;
+using Spectre.Console.Json;
 
 namespace Cade.Services;
 
 public class ConsoleUserInterface : IUserInterface
 {
-    // 定义主题颜色
+    private readonly StringBuilder _inputBuffer = new StringBuilder();
+    private readonly object _consoleLock = new object();
+    private bool _isProcessing = false;
+    private string _statusTitle = "Thinking...";
+    private DateTime _processStartTime = DateTime.Now;
+    
+    // Spinner state
+    private readonly string[] _spinnerFrames = { 
+        "[[   ]]", "[[=  ]]", "[[== ]]", "[[===]]", "[[ ==]]", "[[  =]]" 
+    };
+    private int _spinnerFrame = 0;
+    private DateTime _lastSpinnerTick = DateTime.MinValue;
+
+    // Colors
     private static readonly Color PrimaryColor = new Color(217, 119, 87); // #D97757
     private static readonly Color SecondaryColor = Color.Orange1;
     private static readonly Color AccentColor = Color.LightSlateGrey;
 
+    public bool KeyAvailable => Console.KeyAvailable;
+
     public void ShowWelcome()
     {
         AnsiConsole.Clear();
-
-        // 渲染 Logo
         AnsiConsole.Write(
             new FigletText("Cade Code")
                 .Color(PrimaryColor)
                 .LeftJustified());
 
-        // 渲染欢迎语和状态检查
-        AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .SpinnerStyle(Style.Parse("green"))
-            .Start("正在初始化系统模块...", ctx =>
-            {
-                Thread.Sleep(800);
-                ctx.Status("加载核心神经网络...");
-                Thread.Sleep(800);
-                ctx.Status("建立安全连接...");
-                Thread.Sleep(600);
-            });
-
         AnsiConsole.MarkupLine($"[bold {PrimaryColor.ToMarkup()}]欢迎使用 Cade CLI[/] - [grey]v1.0.0[/]");
         AnsiConsole.MarkupLine("[grey]Type /help for more information.[/]");
         AnsiConsole.Write(new Rule("[grey]Ready[/]").LeftJustified());
         AnsiConsole.WriteLine();
+        
+        RenderBottomArea();
     }
 
-    public string GetInput(string prompt, string path, string modelId)
+    public void SetStatus(string path, string modelId)
     {
-        prompt = ">>";
-        var width = AnsiConsole.Profile.Width;
-        var contentWidth = Math.Max(0, width - 2); // 减去左右边框
-        
-        var borderColor = "[grey]";
-        var promptColor = $"[bold {SecondaryColor.ToMarkup()}]";
-        var primaryColor = $"[bold {PrimaryColor.ToMarkup()}]";
+        // No-op for now or implement status bar if needed
+    }
 
-        // 1. 渲染顶部边框
-        AnsiConsole.MarkupLine($"{borderColor}╭{new string('─', contentWidth)}╮[/]");
-
-        // 2. 渲染中间行 (Prompt)
-        // 我们先打印左边框和提示符，不换行
-        AnsiConsole.Markup($"{borderColor}│[/] {promptColor}{prompt}[/] ");
-        
-        // 记录输入光标的起始位置
-        var (inputLeft, inputTop) = Console.GetCursorPosition();
-
-        // 为了打印底部边框和状态栏，我们需要先换行
-        Console.WriteLine(); 
-
-        // 3. 渲染底部边框
-        AnsiConsole.MarkupLine($"{borderColor}╰{new string('─', contentWidth)}╯[/]");
-
-        // 4. 渲染状态栏
-        var grid = new Grid();
-        grid.Width(width);
-        grid.AddColumn(new GridColumn().LeftAligned().PadRight(2));
-        grid.AddColumn(new GridColumn().RightAligned());
-        grid.AddRow($"[grey]{Markup.Escape(path)}[/]", $"{primaryColor}{modelId}[/]");
-        AnsiConsole.Write(grid);
-        
-        // 记录结束位置
-        var (endLeft, endTop) = Console.GetCursorPosition();
-
-        // 5. 将光标移动回输入位置
-        try 
+    public void SetProcessing(bool isProcessing, string? title = null)
+    {
+        lock (_consoleLock)
         {
-            Console.SetCursorPosition(inputLeft, inputTop);
-        }
-        catch
-        {
-            // 如果发生异常（如滚屏导致坐标失效），则不回溯，直接在当前位置输入（降级体验）
-        }
-        
-        // 6. 读取用户输入
-        var input = Console.ReadLine();
-
-        // 7. 恢复光标到UI组件之后，防止后续输出覆盖底部边框
-        try
-        {
-            // Console.ReadLine 会导致光标下移一行（进入底部边框行）
-            // 我们需要确保光标移动到状态栏之后
-            if (Console.CursorTop < endTop)
+            if (isProcessing && !_isProcessing)
             {
-                Console.SetCursorPosition(0, endTop);
+                _processStartTime = DateTime.Now;
+                _spinnerFrame = 0;
+            }
+            
+            _isProcessing = isProcessing;
+            if (title != null) _statusTitle = title;
+            
+            // Re-render to show/hide status line
+            ClearBottomArea();
+            RenderBottomArea();
+        }
+    }
+
+    public void Update()
+    {
+        if (_isProcessing)
+        {
+            bool needRender = false;
+            
+            // Update Spinner
+            if ((DateTime.Now - _lastSpinnerTick).TotalMilliseconds > 100)
+            {
+                _spinnerFrame = (_spinnerFrame + 1) % _spinnerFrames.Length;
+                _lastSpinnerTick = DateTime.Now;
+                needRender = true;
+            }
+            
+            // Update Time (every 100ms is fine)
+            if (needRender)
+            {
+                lock (_consoleLock)
+                {
+                    // We can optimize by only redrawing Status Line?
+                    // But SafeRender/RenderBottomArea logic is coupled. 
+                    // For simplicity, redraw both.
+                    // We need to clear properly first.
+                    // NOTE: We cannot use ClearBottomArea inside Update easily if we don't know PREVIOUS state?
+                    // We know current state is Processing.
+                    // So we assume 2 lines are currently drawn.
+                    
+                    // To avoid flickering, we can try to just overwrite the Status Line?
+                    // Status Line is at (Current - 1).
+                    // Input Line is at (Current).
+                    
+                    RenderBottomArea(overwrite: true);
+                }
             }
         }
-        catch
+    }
+
+    public string? HandleKeyPress(ConsoleKeyInfo keyInfo)
+    {
+        lock (_consoleLock)
         {
-            // 忽略光标移动错误
+            if (keyInfo.Key == ConsoleKey.Enter)
+            {
+                if (_inputBuffer.Length > 0)
+                {
+                    string input = _inputBuffer.ToString();
+                    _inputBuffer.Clear();
+
+                    PrintUserMessage(input);
+                    RenderBottomArea();
+
+                    return input;
+                }
+            }
+            else if (keyInfo.Key == ConsoleKey.Backspace)
+            {
+                if (_inputBuffer.Length > 0)
+                {
+                    _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
+                    RenderBottomArea(overwrite: true);
+                }
+            }
+            else if (!char.IsControl(keyInfo.KeyChar))
+            {
+                _inputBuffer.Append(keyInfo.KeyChar);
+                RenderBottomArea(overwrite: true);
+            }
+        }
+        return null;
+    }
+
+    public void SafeRender(Action action)
+    {
+        lock (_consoleLock)
+        {
+            ClearBottomArea();
+            action();
+            RenderBottomArea();
+        }
+    }
+
+    private void PrintUserMessage(string message)
+    {
+        ClearBottomArea();
+        var grid = new Grid();
+        grid.AddColumn(new GridColumn().Padding(0, 0, 1, 0));
+        grid.AddColumn(new GridColumn());
+        grid.AddRow(new Markup("[green]➜[/]"), new Markup($"[bold white]{Markup.Escape(message)}[/]"));
+        AnsiConsole.Write(grid);
+    }
+
+    private void RenderBottomArea(bool overwrite = false)
+    {
+        // Logic:
+        // 1. Calculate needed lines.
+        //    - If Processing: Status Line + Input Line.
+        //    - If Not: Input Line.
+        // 2. If overwrite=true, we assume the previous frame had the SAME height/state
+        //    and we just move cursor up and redraw.
+        // 3. If overwrite=false (e.g. SafeRender), we assume cursor is at a "clean" line 
+        //    (history printed) and we just draw downwards.
+        
+        // Actually, SafeRender calls ClearBottomArea first. 
+        // ClearBottomArea moves cursor to the "Top" of the bottom area.
+        // So RenderBottomArea simply draws from current cursor.
+        
+        if (overwrite)
+        {
+            // Move cursor up to start of BottomArea
+            int linesUp = _isProcessing ? 1 : 0;
+            if (Console.CursorTop > linesUp)
+                Console.CursorTop -= linesUp;
+            Console.CursorLeft = 0;
+        }
+
+        // 1. Render Status Line (if processing)
+        if (_isProcessing)
+        {
+            var elapsed = DateTime.Now - _processStartTime;
+            string timeStr = $"({elapsed.TotalSeconds:F1}s)";
+            string spinner = _spinnerFrames[_spinnerFrame];
+            
+            // Clear line first to remove artifacts?
+            // ClearLine(); 
+            // Using MarkupLine will overwrite, but if shorter, artifacts remain.
+            // Better to clear.
+            ClearCurrentLine();
+            
+            AnsiConsole.MarkupLine($"[blue]{spinner}[/] {_statusTitle} [grey]{timeStr}[/]");
+        }
+
+        // 2. Render Input Line
+        ClearCurrentLine();
+        AnsiConsole.Markup($"[grey]>>[/] ");
+        Console.Write(_inputBuffer.ToString());
+        
+        // Clean up right side (if text was deleted)
+        // ClearCurrentLine handles the whole line, but we just wrote partially.
+        // We need to ensure no artifacts to the right.
+        int currentLeft = Console.CursorLeft;
+        int spaces = Math.Max(0, Console.WindowWidth - currentLeft - 1);
+        Console.Write(new string(' ', spaces));
+        Console.CursorLeft = currentLeft;
+        
+        // No newline at the end, cursor stays at end of input
+    }
+
+    private void ClearBottomArea()
+    {
+        // Clear 2 lines if processing, 1 if not.
+        // Assumes cursor is at the END of the Input Line.
+        
+        int linesToClear = _isProcessing ? 2 : 1;
+        
+        // Move up (linesToClear - 1) because we are on the last line.
+        // e.g. 1 line: Move up 0. 2 lines: Move up 1.
+        
+        int currentLine = Console.CursorTop;
+        
+        // Careful about top of buffer
+        int targetTop = currentLine - (linesToClear - 1);
+        if (targetTop < 0) targetTop = 0;
+        
+        Console.SetCursorPosition(0, targetTop);
+        
+        for (int i = 0; i < linesToClear; i++)
+        {
+            ClearCurrentLine();
+            if (i < linesToClear - 1) Console.WriteLine();
         }
         
-        return input ?? string.Empty;
+        // Move back to top
+        Console.SetCursorPosition(0, targetTop);
+    }
+
+    private void ClearCurrentLine()
+    {
+        Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
     }
 
     public void ShowResponse(string content)
     {
-        // 使用 Markup 对象
-        var markup = new Markup(content);
-
-        // 使用 Panel 包裹回复
-        var panel = new Panel(markup)
+        SafeRender(() => 
         {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(AccentColor),
-            Padding = new Padding(1, 1, 1, 1),
-            Header = new PanelHeader("[bold]Cade[/]", Justify.Left)
-        };
-
-        AnsiConsole.Write(panel);
-        AnsiConsole.WriteLine();
+            var markup = new Markup(content);
+            var panel = new Panel(markup)
+            {
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(AccentColor),
+                Padding = new Padding(1, 1, 1, 1),
+                Header = new PanelHeader("[bold]Cade[/]", Justify.Left)
+            };
+            AnsiConsole.Write(panel);
+            AnsiConsole.WriteLine();
+        });
     }
 
     public void ShowError(string message)
     {
-        AnsiConsole.MarkupLine($"[bold red]Error:[/] {message}");
-    }
-
-    public void ShowThinking(Action action)
-    {
-        AnsiConsole.MarkupLine(""); 
-        AnsiConsole.Status()
-            .Spinner(Spinner.Known.BouncingBar)
-            .SpinnerStyle(Style.Parse("yellow"))
-            .Start("Cade 正在思考...", _ => action());
-    }
-
-    public async Task ShowThinkingAsync(Func<Task> action)
-    {
-        AnsiConsole.MarkupLine("");
-        await AnsiConsole.Status()
-            .Spinner(Spinner.Known.BouncingBar)
-            .SpinnerStyle(Style.Parse("yellow"))
-            .StartAsync("Cade 正在思考...", _ => action());
+        SafeRender(() => AnsiConsole.MarkupLine($"[bold red]Error:[/] {message}"));
     }
 
     public void ShowToolLog(string toolName, string command)
     {
-        // 模拟 Claude Code 的工具调用样式
-        var grid = new Grid();
-        grid.AddColumn(new GridColumn().NoWrap().PadRight(2));
-        grid.AddColumn();
-
-        grid.AddRow(
-            $"[bold {AccentColor.ToMarkup()}]{toolName}[/]", 
-            $"[grey]{Markup.Escape(command)}[/]"
-        );
-
-        AnsiConsole.Write(grid);
+        SafeRender(() => 
+        {
+            // Claude Code style: Maybe a minimal tree or panel?
+            // Keeping panel for now as it's distinct.
+            var panel = new Panel(new Text(command))
+                .Header($" invoking [bold yellow]{toolName}[/] ")
+                .BorderColor(Color.Yellow)
+                .RoundedBorder();
+            AnsiConsole.Write(panel);
+        });
     }
 
     public void ShowLog(string message)
     {
-        AnsiConsole.MarkupLine($"[grey]  {Markup.Escape(message)}[/]");
+        SafeRender(() => AnsiConsole.MarkupLine($"[grey]  {Markup.Escape(message)}[/]"));
     }
 }
