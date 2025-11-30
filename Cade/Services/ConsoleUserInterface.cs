@@ -53,11 +53,16 @@ public class ConsoleUserInterface : IUserInterface
                 .Color(PrimaryColor)
                 .LeftJustified());
 
-        AnsiConsole.MarkupLine($"[bold {PrimaryColor.ToMarkup()}]欢迎使用 Cade CLI[/] - [grey]v1.0.0[/]");
-        AnsiConsole.MarkupLine("[grey]Type /help for more information.[/]");
-        AnsiConsole.Write(new Rule("[grey]Ready[/]").LeftJustified());
         AnsiConsole.WriteLine();
-        
+
+        // 提示信息
+        AnsiConsole.MarkupLine("[bold]Tips for getting started:[/]");
+        AnsiConsole.MarkupLine("  [grey]1.[/] Ask questions, edit files, or run commands.");
+        AnsiConsole.MarkupLine("  [grey]2.[/] Be specific for the best results.");
+        AnsiConsole.MarkupLine("  [grey]3.[/] [cyan]/help[/] for more information.");
+
+        AnsiConsole.WriteLine();
+
         RenderBottomArea();
     }
 
@@ -74,11 +79,18 @@ public class ConsoleUserInterface : IUserInterface
             {
                 _processStartTime = DateTime.Now;
                 _spinnerFrame = 0;
+                Console.CursorVisible = false; // 隐藏光标
             }
-            
+
             _isProcessing = isProcessing;
             if (title != null) _statusTitle = title;
-            
+
+            // 停止处理时恢复光标
+            if (!isProcessing)
+            {
+                Console.CursorVisible = true; // 恢复光标
+            }
+
             // Re-render to show/hide status line
             ClearBottomArea();
             RenderBottomArea();
@@ -316,6 +328,9 @@ public class ConsoleUserInterface : IUserInterface
             _lastSpinnerTick = DateTime.Now;
             _responseHeaderStartTime = DateTime.Now;
 
+            // 隐藏光标
+            Console.CursorVisible = false;
+
             // 首次显示
             var dots = _aiResponseDots[_aiDotFrame];
             AnsiConsole.MarkupLine($"[{PrimaryColor.ToMarkup()}]{dots}[/] {Markup.Escape(summary)}");
@@ -328,21 +343,29 @@ public class ConsoleUserInterface : IUserInterface
         // 停止动画
         _showingResponseHeader = false;
 
+        // 恢复光标
+        Console.CursorVisible = true;
+
         SafeRender(() =>
         {
-            // 将 Markdown 转换为 Spectre.Console Markup
+            // 解析 Markdown 内容
             try
             {
-                var markup = MarkdownRenderer.ToMarkup(content);
-                AnsiConsole.Write(new Markup(markup));
+                var parsed = MarkdownRenderer.Parse(content);
+
+                // 渲染所有元素
+                foreach (var element in parsed.Elements)
+                {
+                    AnsiConsole.Write(element);
+                    AnsiConsole.WriteLine();
+                }
             }
             catch
             {
-                // 如果转换或渲染失败，则作为纯文本显示
+                // 如果解析失败，则作为纯文本显示
                 AnsiConsole.WriteLine(content);
             }
 
-            AnsiConsole.WriteLine();
             AnsiConsole.WriteLine();
         });
     }
