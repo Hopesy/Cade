@@ -270,16 +270,18 @@ public class ConsoleUserInterface : IUserInterface
         SafeRender(() => AnsiConsole.MarkupLine($"[bold red]Error:[/] {message}"));
     }
 
-    public void ShowToolLog(string toolName, string command)
+    public void ShowToolLog(string toolName, string command, string output)
     {
         SafeRender(() => 
         {
-            // Claude Code style: Maybe a minimal tree or panel?
-            // Keeping panel for now as it's distinct.
-            var panel = new Panel(new Text(command))
-                .Header($" invoking [bold yellow]{toolName}[/] ")
-                .BorderColor(Color.Yellow)
-                .RoundedBorder();
+            var panelContent = new Text(output);
+            var panel = new Panel(panelContent)
+            {
+                Border = BoxBorder.Heavy, // Claude style border
+                BorderStyle = new Style(Color.Yellow),
+                Padding = new Padding(1, 1, 1, 1),
+                Header = new PanelHeader($" 🔨 [bold yellow]{toolName}[/]([grey]{Markup.Escape(command)}[/]) ", Justify.Left)
+            };
             AnsiConsole.Write(panel);
         });
     }

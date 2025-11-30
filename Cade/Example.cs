@@ -16,7 +16,7 @@ class Example
     private static bool _isProcessing = false;
     static async Task Main(string[] args)
     {
-        // 1. 设置控制台编码，防止乱码66666
+        // 1. 设置控制台编码，防止乱码666666
         Console.OutputEncoding = Encoding.UTF8;
 
         // 2. 初始化界面

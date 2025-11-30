@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Cade.Provider\Cade.Provider.csproj" />
+    <ProjectReference Include="..\Cade.Tool\Cade.Tool.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -8,7 +8,7 @@ public interface IUserInterface
     void ShowWelcome();
     void ShowResponse(string content);
     void ShowError(string message);
-    void ShowToolLog(string toolName, string command);
+    void ShowToolLog(string toolName, string command, string output);
     void ShowLog(string message);
 
     // Non-blocking Input & Thread-safe Output Support

@@ -16,14 +16,16 @@ public class CadeHostedService : BackgroundService
     private readonly IProviderConfigService _configService;
     private readonly IProviderService _providerService;
     private readonly IConfiguration _configuration;
+    private readonly IAiService _aiService;
 
     public CadeHostedService(
-        IUserInterface ui, 
+        IUserInterface ui,
         MainViewModel viewModel,
         IHostApplicationLifetime appLifetime,
         IProviderConfigService configService,
         IProviderService providerService,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IAiService aiService)
     {
         _ui = ui;
         _viewModel = viewModel;
@@ -31,6 +33,20 @@ public class CadeHostedService : BackgroundService
         _configService = configService;
         _providerService = providerService;
         _configuration = configuration;
+        _aiService = aiService;
+
+        // 订阅工具调用事件
+        _aiService.ToolCalled += OnToolCalled;
+    }
+
+    private void OnToolCalled(object? sender, ToolCallEventArgs e)
+    {
+        // 在 UI 中显示工具调用日志
+        var parameters = string.IsNullOrWhiteSpace(e.Parameters) || e.Parameters == "{}"
+            ? ""
+            : $" {e.Parameters}";
+
+        _ui.ShowToolLog(e.ToolName, parameters, e.Output);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -120,12 +136,19 @@ public class CadeHostedService : BackgroundService
     {
         if (string.IsNullOrWhiteSpace(input)) return;
 
-        _ui.SetProcessing(true, "正在思考..."); // New: Set title for processing
         try
         {
+            // 先显示"正在回复中"提示（在历史区域）
+            _ui.ShowLog("⏳ 正在处理您的请求...");
+
+            // 底部状态栏显示处理状态
+            _ui.SetProcessing(true, "正在思考...");
+
             _viewModel.CurrentInput = input;
-            
+
             await _viewModel.SubmitCommand.ExecuteAsync(null);
+
+            // 显示 AI 回复
             _ui.ShowResponse(_viewModel.LastResponse);
         }
         catch (Exception ex)
