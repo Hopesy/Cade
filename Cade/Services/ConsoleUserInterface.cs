@@ -13,13 +13,30 @@ public class ConsoleUserInterface : IUserInterface
     private bool _isProcessing = false;
     private string _statusTitle = "Thinking...";
     private DateTime _processStartTime = DateTime.Now;
-    
+
     // Spinner state
-    private readonly string[] _spinnerFrames = { 
-        "[[   ]]", "[[=  ]]", "[[== ]]", "[[===]]", "[[ ==]]", "[[  =]]" 
+    private readonly string[] _spinnerFrames = {
+        "[[   ]]", "[[=  ]]", "[[== ]]", "[[===]]", "[[ ==]]", "[[  =]]"
     };
     private int _spinnerFrame = 0;
     private DateTime _lastSpinnerTick = DateTime.MinValue;
+
+    // AI 回复动画点（Gemini 风格脉动效果）
+    // 动画效果：空 → 1个点 → 2个点 → 3个点 → 2个点 → 1个点 → 空（循环）
+    private readonly string[] _aiResponseDots = {
+        " ",   // 空
+        "·",   // 1个点
+        ":",   // 2个点
+        "⋮",   // 3个点
+        ":",   // 2个点
+        "·"    // 1个点
+    };
+    private int _aiDotFrame = 0;
+    private bool _showingResponseHeader = false;
+    private string _currentResponseSummary = string.Empty;
+    private int _responseHeaderLine = -1; // 记录回复头部所在的行号
+    private DateTime _responseHeaderStartTime = DateTime.MinValue;
+    private readonly TimeSpan _responseHeaderDuration = TimeSpan.FromSeconds(2); // 动画持续时间
 
     // Colors
     private static readonly Color PrimaryColor = new Color(217, 119, 87); // #D97757
@@ -70,37 +87,75 @@ public class ConsoleUserInterface : IUserInterface
 
     public void Update()
     {
-        if (_isProcessing)
+        bool needRender = false;
+
+        // 更新 AI 回复头部动画
+        if (_showingResponseHeader)
         {
-            bool needRender = false;
-            
-            // Update Spinner
+            // Gemini 风格：更快的脉动效果
+            if ((DateTime.Now - _lastSpinnerTick).TotalMilliseconds > 150)
+            {
+                _aiDotFrame = (_aiDotFrame + 1) % _aiResponseDots.Length;
+                _lastSpinnerTick = DateTime.Now;
+
+                lock (_consoleLock)
+                {
+                    UpdateResponseHeader();
+                }
+            }
+        }
+        else if (_isProcessing)
+        {
+            // 更新底部处理状态（思考动画）
             if ((DateTime.Now - _lastSpinnerTick).TotalMilliseconds > 100)
             {
                 _spinnerFrame = (_spinnerFrame + 1) % _spinnerFrames.Length;
                 _lastSpinnerTick = DateTime.Now;
                 needRender = true;
             }
-            
-            // Update Time (every 100ms is fine)
+
             if (needRender)
             {
                 lock (_consoleLock)
                 {
-                    // We can optimize by only redrawing Status Line?
-                    // But SafeRender/RenderBottomArea logic is coupled. 
-                    // For simplicity, redraw both.
-                    // We need to clear properly first.
-                    // NOTE: We cannot use ClearBottomArea inside Update easily if we don't know PREVIOUS state?
-                    // We know current state is Processing.
-                    // So we assume 2 lines are currently drawn.
-                    
-                    // To avoid flickering, we can try to just overwrite the Status Line?
-                    // Status Line is at (Current - 1).
-                    // Input Line is at (Current).
-                    
                     RenderBottomArea(overwrite: true);
                 }
+            }
+        }
+    }
+
+    private void UpdateResponseHeader()
+    {
+        if (_responseHeaderLine < 0) return;
+
+        // 保存当前光标位置
+        var currentTop = Console.CursorTop;
+        var currentLeft = Console.CursorLeft;
+
+        // 移动到回复头部行
+        Console.SetCursorPosition(0, _responseHeaderLine);
+
+        // 清除该行
+        ClearCurrentLine();
+
+        // 重新绘制动画点 + 总结
+        var dots = _aiResponseDots[_aiDotFrame];
+        Console.Write($"\x1b[38;2;{PrimaryColor.R};{PrimaryColor.G};{PrimaryColor.B}m{dots}\x1b[0m");
+        if (!string.IsNullOrEmpty(_currentResponseSummary))
+        {
+            Console.Write(_currentResponseSummary);
+        }
+
+        // 恢复光标位置
+        if (currentTop < Console.BufferHeight && currentLeft < Console.WindowWidth)
+        {
+            try
+            {
+                Console.SetCursorPosition(currentLeft, currentTop);
+            }
+            catch
+            {
+                // 忽略光标位置错误
             }
         }
     }
@@ -157,6 +212,7 @@ public class ConsoleUserInterface : IUserInterface
         grid.AddColumn(new GridColumn());
         grid.AddRow(new Markup("[green]➜[/]"), new Markup($"[bold white]{Markup.Escape(message)}[/]"));
         AnsiConsole.Write(grid);
+        AnsiConsole.WriteLine(); // 确保换行
     }
 
     private void RenderBottomArea(bool overwrite = false)
@@ -248,19 +304,45 @@ public class ConsoleUserInterface : IUserInterface
         Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
     }
 
+    public void ShowResponseHeader(string summary)
+    {
+        SafeRender(() =>
+        {
+            // 记录当前行位置和开始时间
+            _responseHeaderLine = Console.CursorTop;
+            _currentResponseSummary = summary;
+            _showingResponseHeader = true;
+            _aiDotFrame = 0;
+            _lastSpinnerTick = DateTime.Now;
+            _responseHeaderStartTime = DateTime.Now;
+
+            // 首次显示
+            var dots = _aiResponseDots[_aiDotFrame];
+            AnsiConsole.MarkupLine($"[{PrimaryColor.ToMarkup()}]{dots}[/] {Markup.Escape(summary)}");
+            AnsiConsole.WriteLine();
+        });
+    }
+
     public void ShowResponse(string content)
     {
-        SafeRender(() => 
+        // 停止动画
+        _showingResponseHeader = false;
+
+        SafeRender(() =>
         {
-            var markup = new Markup(content);
-            var panel = new Panel(markup)
+            // 将 Markdown 转换为 Spectre.Console Markup
+            try
             {
-                Border = BoxBorder.Rounded,
-                BorderStyle = new Style(AccentColor),
-                Padding = new Padding(1, 1, 1, 1),
-                Header = new PanelHeader("[bold]Cade[/]", Justify.Left)
-            };
-            AnsiConsole.Write(panel);
+                var markup = MarkdownRenderer.ToMarkup(content);
+                AnsiConsole.Write(new Markup(markup));
+            }
+            catch
+            {
+                // 如果转换或渲染失败，则作为纯文本显示
+                AnsiConsole.WriteLine(content);
+            }
+
+            AnsiConsole.WriteLine();
             AnsiConsole.WriteLine();
         });
     }

@@ -138,17 +138,27 @@ public class CadeHostedService : BackgroundService
 
         try
         {
-            // 先显示"正在回复中"提示（在历史区域）
-            _ui.ShowLog("⏳ 正在处理您的请求...");
-
-            // 底部状态栏显示处理状态
+            // 底部状态栏显示"思考"动画
             _ui.SetProcessing(true, "正在思考...");
 
             _viewModel.CurrentInput = input;
 
+            // 等待 AI 回复（此时思考动画在底部运行）
             await _viewModel.SubmitCommand.ExecuteAsync(null);
 
-            // 显示 AI 回复
+            // 收到回复后，停止思考动画
+            _ui.SetProcessing(false);
+
+            // 提取回复的第一句话作为总结（最多 60 个字符）
+            var summary = ExtractSummary(_viewModel.LastResponse);
+
+            // 显示回复头部动画（流水小点 + 总结）
+            _ui.ShowResponseHeader(summary);
+
+            // 等待一小段时间让动画显示
+            await Task.Delay(1500);
+
+            // 显示完整的 AI 回复（会自动停止头部动画）
             _ui.ShowResponse(_viewModel.LastResponse);
         }
         catch (Exception ex)
@@ -159,6 +169,40 @@ public class CadeHostedService : BackgroundService
         {
             _ui.SetProcessing(false);
         }
+    }
+
+    private string ExtractSummary(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response))
+            return "AI 回复";
+
+        // 移除 Markdown 标记
+        var text = response.Trim();
+
+        // 移除代码块
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"```.*?```", "", System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        // 移除行内代码
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"`[^`]+`", "");
+
+        // 移除标题标记
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"^#+\s*", "", System.Text.RegularExpressions.RegexOptions.Multiline);
+
+        // 移除粗体和斜体
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*([^\*]+)\*\*", "$1");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*([^\*]+)\*", "$1");
+
+        // 获取第一句话（以句号、问号、感叹号结尾）
+        var firstSentence = System.Text.RegularExpressions.Regex.Match(text, @"^[^。！？\n]+[。！？]?");
+        var summary = firstSentence.Success ? firstSentence.Value.Trim() : text.Split('\n')[0].Trim();
+
+        // 限制长度
+        if (summary.Length > 60)
+        {
+            summary = summary.Substring(0, 57) + "...";
+        }
+
+        return string.IsNullOrWhiteSpace(summary) ? "AI 回复" : summary;
     }
 
     private async Task HandleCommandAsync(string input)
