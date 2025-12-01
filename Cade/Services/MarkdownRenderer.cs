@@ -108,12 +108,38 @@ public static class MarkdownRenderer
 
     private static Panel CreateCodeBlockPanel(string code, string language)
     {
-        // 转义 Markup 特殊字符
-        code = EscapeMarkup(code.TrimEnd());
+        code = code.TrimEnd();
 
         var languageLabel = string.IsNullOrWhiteSpace(language) ? "code" : language;
 
-        var panel = new Panel(new Markup($"[grey]{code}[/]"))
+        // 使用简单的语法高亮功能
+        IRenderable codeRenderable;
+
+        try
+        {
+            var syntaxLanguage = MapLanguageToSyntax(language);
+
+            if (!string.IsNullOrWhiteSpace(syntaxLanguage))
+            {
+                // 应用语法高亮
+                var highlightedCode = ApplySyntaxHighlighting(code, syntaxLanguage);
+                codeRenderable = new Markup(highlightedCode);
+            }
+            else
+            {
+                // 如果语言不支持，使用纯文本
+                var escapedCode = EscapeMarkup(code);
+                codeRenderable = new Markup($"[grey]{escapedCode}[/]");
+            }
+        }
+        catch
+        {
+            // 如果高亮失败，降级到纯文本
+            var escapedCode = EscapeMarkup(code);
+            codeRenderable = new Markup($"[grey]{escapedCode}[/]");
+        }
+
+        var panel = new Panel(codeRenderable)
         {
             Border = BoxBorder.Rounded,
             BorderStyle = new Style(Color.Grey),
@@ -122,6 +148,254 @@ public static class MarkdownRenderer
         };
 
         return panel;
+    }
+
+    /// <summary>
+    /// 应用简单的语法高亮
+    /// </summary>
+    private static string ApplySyntaxHighlighting(string code, string language)
+    {
+        // 先转义 Markup 特殊字符
+        code = EscapeMarkup(code);
+
+        // 根据语言应用不同的高亮规则
+        return language switch
+        {
+            "csharp" => HighlightCSharp(code),
+            "javascript" or "typescript" => HighlightJavaScript(code),
+            "python" => HighlightPython(code),
+            "json" => HighlightJson(code),
+            "xml" or "html" => HighlightXml(code),
+            "bash" or "powershell" => HighlightShell(code),
+            "sql" => HighlightSql(code),
+            _ => $"[white]{code}[/]" // 默认白色
+        };
+    }
+
+    /// <summary>
+    /// C# 语法高亮
+    /// </summary>
+    private static string HighlightCSharp(string code)
+    {
+        // 关键字
+        var keywords = new[] {
+            "using", "namespace", "class", "interface", "struct", "enum", "delegate",
+            "public", "private", "protected", "internal", "static", "readonly", "const",
+            "void", "int", "string", "bool", "double", "float", "long", "var", "object",
+            "if", "else", "for", "foreach", "while", "do", "switch", "case", "return",
+            "new", "this", "base", "null", "true", "false", "async", "await", "try", "catch",
+            "finally", "throw", "get", "set", "value", "override", "virtual", "abstract"
+        };
+
+        // 高亮关键字（蓝色）
+        foreach (var keyword in keywords)
+        {
+            code = Regex.Replace(code, $@"\b{keyword}\b", $"[blue]{keyword}[/]", RegexOptions.Multiline);
+        }
+
+        // 高亮字符串（黄色）
+        code = Regex.Replace(code, @"""[^""]*""", m => $"[yellow]{m.Value}[/]", RegexOptions.Multiline);
+
+        // 高亮注释（绿色）
+        code = Regex.Replace(code, @"//.*$", m => $"[green]{m.Value}[/]", RegexOptions.Multiline);
+
+        // 高亮数字（青色）
+        code = Regex.Replace(code, @"\b\d+\.?\d*\b", m => $"[cyan]{m.Value}[/]");
+
+        return code;
+    }
+
+    /// <summary>
+    /// JavaScript/TypeScript 语法高亮
+    /// </summary>
+    private static string HighlightJavaScript(string code)
+    {
+        var keywords = new[] {
+            "const", "let", "var", "function", "return", "if", "else", "for", "while",
+            "switch", "case", "break", "continue", "class", "extends", "constructor",
+            "this", "super", "new", "typeof", "instanceof", "import", "export", "from",
+            "async", "await", "try", "catch", "finally", "throw", "null", "undefined",
+            "true", "false", "interface", "type", "enum"
+        };
+
+        foreach (var keyword in keywords)
+        {
+            code = Regex.Replace(code, $@"\b{keyword}\b", $"[blue]{keyword}[/]", RegexOptions.Multiline);
+        }
+
+        code = Regex.Replace(code, @"'[^']*'|""[^""]*""|`[^`]*`", m => $"[yellow]{m.Value}[/]", RegexOptions.Multiline);
+        code = Regex.Replace(code, @"//.*$", m => $"[green]{m.Value}[/]", RegexOptions.Multiline);
+        code = Regex.Replace(code, @"\b\d+\.?\d*\b", m => $"[cyan]{m.Value}[/]");
+
+        return code;
+    }
+
+    /// <summary>
+    /// Python 语法高亮
+    /// </summary>
+    private static string HighlightPython(string code)
+    {
+        var keywords = new[] {
+            "def", "class", "return", "if", "elif", "else", "for", "while", "in",
+            "import", "from", "as", "try", "except", "finally", "raise", "with",
+            "lambda", "yield", "async", "await", "None", "True", "False", "and",
+            "or", "not", "is", "pass", "break", "continue"
+        };
+
+        foreach (var keyword in keywords)
+        {
+            code = Regex.Replace(code, $@"\b{keyword}\b", $"[blue]{keyword}[/]", RegexOptions.Multiline);
+        }
+
+        code = Regex.Replace(code, @"'[^']*'|""[^""]*""", m => $"[yellow]{m.Value}[/]", RegexOptions.Multiline);
+        code = Regex.Replace(code, @"#.*$", m => $"[green]{m.Value}[/]", RegexOptions.Multiline);
+        code = Regex.Replace(code, @"\b\d+\.?\d*\b", m => $"[cyan]{m.Value}[/]");
+
+        return code;
+    }
+
+    /// <summary>
+    /// JSON 语法高亮
+    /// </summary>
+    private static string HighlightJson(string code)
+    {
+        // 高亮键名（青色）
+        code = Regex.Replace(code, @"""([^""]+)""\s*:", m =>
+        {
+            var key = m.Groups[1].Value;
+            return $"[cyan]\"{key}\"[/]:";
+        }, RegexOptions.Multiline);
+
+        // 高亮字符串值（黄色）
+        code = Regex.Replace(code, @":\s*""([^""]*)""", m =>
+        {
+            var value = m.Groups[1].Value;
+            return $": [yellow]\"{value}\"[/]";
+        }, RegexOptions.Multiline);
+
+        // 高亮布尔值和 null（蓝色）
+        code = Regex.Replace(code, @"\b(true|false|null)\b", m => $"[blue]{m.Value}[/]");
+
+        // 高亮数字（青色）
+        code = Regex.Replace(code, @"\b\d+\.?\d*\b", m => $"[cyan]{m.Value}[/]");
+
+        return code;
+    }
+
+    /// <summary>
+    /// XML/HTML 语法高亮
+    /// </summary>
+    private static string HighlightXml(string code)
+    {
+        // 高亮标签（蓝色）
+        code = Regex.Replace(code, @"</?([a-zA-Z0-9]+)", m =>
+        {
+            var tag = m.Groups[1].Value;
+            return $"[blue]<{tag}[/]";
+        });
+
+        // 高亮属性名（青色）
+        code = Regex.Replace(code, @"\s([a-zA-Z-]+)=", m =>
+        {
+            var attr = m.Groups[1].Value;
+            return $" [cyan]{attr}[/]=";
+        });
+
+        // 高亮属性值（黄色）
+        code = Regex.Replace(code, @"""[^""]*""", m => $"[yellow]{m.Value}[/]");
+
+        return code;
+    }
+
+    /// <summary>
+    /// Shell 脚本语法高亮
+    /// </summary>
+    private static string HighlightShell(string code)
+    {
+        // 高亮注释（绿色）
+        code = Regex.Replace(code, @"#.*$", m => $"[green]{m.Value}[/]", RegexOptions.Multiline);
+
+        // 高亮字符串（黄色）
+        code = Regex.Replace(code, @"'[^']*'|""[^""]*""", m => $"[yellow]{m.Value}[/]", RegexOptions.Multiline);
+
+        // 高亮变量（青色）
+        code = Regex.Replace(code, @"\$[a-zA-Z_][a-zA-Z0-9_]*", m => $"[cyan]{m.Value}[/]");
+
+        return code;
+    }
+
+    /// <summary>
+    /// SQL 语法高亮
+    /// </summary>
+    private static string HighlightSql(string code)
+    {
+        var keywords = new[] {
+            "SELECT", "FROM", "WHERE", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP",
+            "ALTER", "TABLE", "INDEX", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
+            "ON", "AND", "OR", "NOT", "NULL", "IS", "IN", "LIKE", "ORDER", "BY",
+            "GROUP", "HAVING", "AS", "DISTINCT", "COUNT", "SUM", "AVG", "MAX", "MIN"
+        };
+
+        foreach (var keyword in keywords)
+        {
+            code = Regex.Replace(code, $@"\b{keyword}\b", $"[blue]{keyword}[/]", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+        }
+
+        code = Regex.Replace(code, @"'[^']*'", m => $"[yellow]{m.Value}[/]", RegexOptions.Multiline);
+        code = Regex.Replace(code, @"--.*$", m => $"[green]{m.Value}[/]", RegexOptions.Multiline);
+
+        return code;
+    }
+
+    /// <summary>
+    /// 映射 Markdown 语言标识到 Spectre.Console Syntax 支持的语言
+    /// </summary>
+    private static string MapLanguageToSyntax(string language)
+    {
+        if (string.IsNullOrWhiteSpace(language))
+            return string.Empty;
+
+        // 转换为小写以便匹配
+        var lang = language.ToLowerInvariant();
+
+        // Spectre.Console 支持的语言映射
+        return lang switch
+        {
+            // C# 和 .NET
+            "c#" or "csharp" or "cs" => "csharp",
+
+            // Web 开发
+            "javascript" or "js" => "javascript",
+            "typescript" or "ts" => "typescript",
+            "html" or "htm" => "html",
+            "css" => "css",
+            "json" => "json",
+            "xml" => "xml",
+
+            // 其他流行语言
+            "python" or "py" => "python",
+            "java" => "java",
+            "go" or "golang" => "go",
+            "rust" or "rs" => "rust",
+            "cpp" or "c++" or "cxx" => "cpp",
+            "c" => "c",
+
+            // 脚本和配置
+            "bash" or "sh" or "shell" => "bash",
+            "powershell" or "ps1" or "pwsh" => "powershell",
+            "sql" => "sql",
+            "yaml" or "yml" => "yaml",
+            "toml" => "toml",
+
+            // 标记语言
+            "markdown" or "md" => "markdown",
+
+            // 其他
+            "diff" or "patch" => "diff",
+
+            // 默认：尝试原样传递
+            _ => lang
+        };
     }
 
     /// <summary>

@@ -4,7 +4,8 @@
       "Bash(rm:*)",
       "Bash(dotnet build:*)",
       "Bash(dotnet new:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []
