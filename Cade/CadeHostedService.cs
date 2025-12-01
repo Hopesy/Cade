@@ -149,14 +149,9 @@ public class CadeHostedService : BackgroundService
             // 收到回复后，停止思考动画
             _ui.SetProcessing(false);
 
-            // 提取回复的第一句话作为总结（最多 60 个字符）
+            // 提取回复的第一句话作为总结
             var summary = ExtractSummary(_viewModel.LastResponse);
-
-            // 显示回复头部动画（流水小点 + 总结）
             _ui.ShowResponseHeader(summary);
-
-            // 等待一小段时间让动画显示
-            await Task.Delay(1500);
 
             // 显示完整的 AI 回复（会自动停止头部动画）
             _ui.ShowResponse(_viewModel.LastResponse);

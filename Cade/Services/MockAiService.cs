@@ -9,7 +9,9 @@ public class MockAiService : IAiService
 {
     private readonly IUserInterface _ui;
 
+#pragma warning disable CS0067 // Mock 服务不触发事件
     public event EventHandler<ToolCallEventArgs>? ToolCalled;
+#pragma warning restore CS0067
 
     public MockAiService(IUserInterface ui)
     {
