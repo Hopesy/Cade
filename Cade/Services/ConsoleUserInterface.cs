@@ -9,6 +9,7 @@ namespace Cade.Services;
 public class ConsoleUserInterface : IUserInterface
 {
     private readonly StringBuilder _inputBuffer = new StringBuilder();
+    private int _cursorPosition = 0; // 光标在输入缓冲区中的位置（字符索引）
     private readonly object _consoleLock = new object();
     private bool _isProcessing = false;
     private string _statusTitle = "Thinking...";
@@ -184,6 +185,7 @@ public class ConsoleUserInterface : IUserInterface
                 {
                     string input = _inputBuffer.ToString();
                     _inputBuffer.Clear();
+                    _cursorPosition = 0; // 重置光标位置
 
                     PrintUserMessage(input);
                     RenderBottomArea();
@@ -193,15 +195,64 @@ public class ConsoleUserInterface : IUserInterface
             }
             else if (keyInfo.Key == ConsoleKey.Backspace)
             {
-                if (_inputBuffer.Length > 0)
+                // 在光标位置前删除一个字符
+                if (_cursorPosition > 0 && _inputBuffer.Length > 0)
                 {
-                    _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
+                    _inputBuffer.Remove(_cursorPosition - 1, 1);
+                    _cursorPosition--;
+                    RenderBottomArea(overwrite: true);
+                }
+            }
+            else if (keyInfo.Key == ConsoleKey.Delete)
+            {
+                // 删除光标位置的字符
+                if (_cursorPosition < _inputBuffer.Length)
+                {
+                    _inputBuffer.Remove(_cursorPosition, 1);
+                    RenderBottomArea(overwrite: true);
+                }
+            }
+            else if (keyInfo.Key == ConsoleKey.LeftArrow)
+            {
+                // 向左移动光标
+                if (_cursorPosition > 0)
+                {
+                    _cursorPosition--;
+                    RenderBottomArea(overwrite: true);
+                }
+            }
+            else if (keyInfo.Key == ConsoleKey.RightArrow)
+            {
+                // 向右移动光标
+                if (_cursorPosition < _inputBuffer.Length)
+                {
+                    _cursorPosition++;
+                    RenderBottomArea(overwrite: true);
+                }
+            }
+            else if (keyInfo.Key == ConsoleKey.Home)
+            {
+                // 移动到行首
+                if (_cursorPosition != 0)
+                {
+                    _cursorPosition = 0;
+                    RenderBottomArea(overwrite: true);
+                }
+            }
+            else if (keyInfo.Key == ConsoleKey.End)
+            {
+                // 移动到行尾
+                if (_cursorPosition != _inputBuffer.Length)
+                {
+                    _cursorPosition = _inputBuffer.Length;
                     RenderBottomArea(overwrite: true);
                 }
             }
             else if (!char.IsControl(keyInfo.KeyChar))
             {
-                _inputBuffer.Append(keyInfo.KeyChar);
+                // 在光标位置插入字符
+                _inputBuffer.Insert(_cursorPosition, keyInfo.KeyChar);
+                _cursorPosition++;
                 RenderBottomArea(overwrite: true);
             }
         }
@@ -299,6 +350,10 @@ public class ConsoleUserInterface : IUserInterface
         // --- 开始绘制 ---
         try
         {
+            // 隐藏光标以避免渲染过程中的闪烁
+            bool wasCursorVisible = Console.CursorVisible;
+            Console.CursorVisible = false;
+
             // [Status Line]
             if (_isProcessing)
             {
@@ -341,8 +396,9 @@ public class ConsoleUserInterface : IUserInterface
             // 最后一行不 WriteLine
 
             // --- 恢复光标 ---
-            // 使用 DisplayWidth 计算
-            int cursorLeft = 3 + GetDisplayWidth(_inputBuffer.ToString());
+            // 计算光标位置：使用到光标位置为止的文本宽度
+            string textBeforeCursor = _inputBuffer.ToString().Substring(0, Math.Min(_cursorPosition, _inputBuffer.Length));
+            int cursorLeft = 3 + GetDisplayWidth(textBeforeCursor);
             if (cursorLeft >= safeWidth) cursorLeft = safeWidth - 1;
 
             // 再次检查 inputRowTop 是否有效 (虽然我们预留了空间，但以防万一)
@@ -350,6 +406,9 @@ public class ConsoleUserInterface : IUserInterface
             {
                 Console.SetCursorPosition(cursorLeft, inputRowTop);
             }
+
+            // 渲染完成后恢复光标显示
+            Console.CursorVisible = wasCursorVisible || !_isProcessing;
         }
         catch (Exception)
         {
