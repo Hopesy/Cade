@@ -221,9 +221,10 @@ public class ConsoleUserInterface : IUserInterface
     private void PrintUserMessage(string message)
     {
         ClearBottomArea();
-        
+
         // 简单渲染用户消息: -> message
         AnsiConsole.MarkupLine($"[green]->[/] [bold white]{Markup.Escape(message)}[/]");
+        AnsiConsole.WriteLine(); // 添加空行，确保光标在新行
     }
 
     private void RenderBottomArea(bool overwrite = false)
@@ -235,141 +236,170 @@ public class ConsoleUserInterface : IUserInterface
         // 行偏移 3: Bottom Line (───)
 
         int statusLines = _isProcessing ? 1 : 0;
-        int inputLineOffset = statusLines + 1; 
-        int totalLines = statusLines + 3; 
+        int inputLineOffset = statusLines + 1;
+        int totalLines = statusLines + 3;
 
-        int safeWidth = Math.Max(0, Console.WindowWidth - 1); 
+        int safeWidth = Math.Max(0, Console.WindowWidth - 1);
         string lineStr = new string('─', safeWidth);
-        string clearLine = new string(' ', safeWidth); 
+        string clearLine = new string(' ', safeWidth);
 
         int startTop;
 
         if (!overwrite)
         {
-            // --- 关键修正：空间预留 ---
-            // 在首次绘制前，检查剩余空间是否足够。如果不够，主动滚屏。
-            // 这样可以防止在绘制过程中触发隐式滚动，导致坐标错乱。
-            
+            // --- 关键修正：空间预留 (Space Reservation) ---
+            // 确保有足够的缓冲区行数来绘制 totalLines。
+            // 如果空间不足，主动 WriteLine 滚屏。
+
             int currentTop = Console.CursorTop;
-            int windowHeight = Console.WindowHeight;
             int bufferHeight = Console.BufferHeight;
-            
-            // 计算可视区域剩余行数
-            // 注意：在某些终端中 WindowTop 可能为 0，我们主要关注 Buffer 底部
-            int remainingLines = windowHeight - (currentTop % windowHeight) - 1; 
-            
-            // 如果是在 Buffer 的最后几行，也需要判断
-            // 简单策略：如果当前行 + 需要的行数 >= BufferHeight，或者接近 Window 底部
-            // 我们直接打印换行符来“推”屏幕
-            
-            // 更稳健的做法：
-            // 预演一下：如果我们在 currentTop 开始画，画 totalLines 行，会不会超过 BufferHeight?
-            
-            // 修正：避免无限循环。如果是 BufferHeight 不足，WriteLine 会自动滚动 Buffer。
-            // 关键是我们需要确保 startTop + totalLines - 1 < Console.BufferHeight
-            // 如果 currentTop 已经在最后一行，我们需要滚动 totalLines 次才能腾出空间
-            
-            int linesNeeded = totalLines;
-            // 检查从当前位置往下写 linesNeeded 行是否会越界
-            // 实际上，只要当前行 + totalLines > BufferHeight，就会触发滚动
-            
-            int availableLinesBelow = Console.BufferHeight - currentTop;
-            if (availableLinesBelow <= linesNeeded)
+
+            // 预测需要的底部位置
+            int neededBottom = currentTop + totalLines;
+
+            // 如果需要的底部超出了缓冲区高度
+            if (neededBottom > bufferHeight)
             {
                 // 需要滚动的行数
-                int scrollAmount = linesNeeded - availableLinesBelow + 1;
-                // 限制最大滚动数，防止异常
-                scrollAmount = Math.Min(scrollAmount, 10); 
-                
-                for(int i=0; i<scrollAmount; i++)
+                int linesToScroll = neededBottom - bufferHeight;
+
+                // 限制，防止无限循环
+                linesToScroll = Math.Min(linesToScroll, 20);
+
+                for (int i = 0; i < linesToScroll; i++)
                 {
                     Console.WriteLine();
                 }
             }
-            
-            // 再次获取调整后的 Top
+
+            // 滚屏后，CursorTop 会更新。重新获取起始位置。
             startTop = Console.CursorTop;
-            // 如果还是太靠下（因为 WriteLine 也会把 CursorTop 推到最后），
-            // 说明我们实际上是在 Buffer 底部操作，startTop 应该是 BufferHeight - totalLines
-            // 但最安全的做法是直接用 CursorTop。
-            
-            // 修正：如果 CursorTop 位于 BufferHeight - 1，我们无法向下写 3 行。
-            // 这种情况下，我们应该把 startTop 往上移。
-            if (startTop + totalLines > Console.BufferHeight)
+
+            // 再次检查边界：如果因为滚屏导致 CursorTop 顶到了 BufferHeight (极罕见情况)
+            // 强制回退 startTop
+            if (startTop + totalLines > bufferHeight)
             {
-                startTop = Console.BufferHeight - totalLines;
+                startTop = Math.Max(0, bufferHeight - totalLines);
             }
         }
         else
         {
             // 重绘模式：回溯到起始位置
-            // 此时我们假设之前的空间预留是成功的，直接计算偏移
             int currentTop = Console.CursorTop;
             startTop = currentTop - inputLineOffset;
-            
-            // 保护性检查：如果用户疯狂调整窗口导致 startTop 变为负数
+
+            // 保护性检查
             if (startTop < 0) startTop = 0;
+            if (startTop + totalLines > Console.BufferHeight)
+            {
+                startTop = Math.Max(0, Console.BufferHeight - totalLines);
+            }
         }
 
         // --- 开始绘制 ---
-
-        // [Status Line]
-        if (_isProcessing)
+        try
         {
-            Console.SetCursorPosition(0, startTop);
-            Console.Write(clearLine); 
-            Console.SetCursorPosition(0, startTop);
-            
-            var elapsed = DateTime.Now - _processStartTime;
-            string timeStr = $"({elapsed.TotalSeconds:F1}s)";
-            string spinner = _spinnerFrames[_spinnerFrame];
-            AnsiConsole.Markup($"[blue]{spinner}[/] {_statusTitle} [grey]{timeStr}[/]");
-            Console.WriteLine(); 
+            // [Status Line]
+            if (_isProcessing)
+            {
+                Console.SetCursorPosition(0, startTop);
+                Console.Write(clearLine);
+                Console.SetCursorPosition(0, startTop);
+
+                var elapsed = DateTime.Now - _processStartTime;
+                string timeStr = $"({elapsed.TotalSeconds:F1}s)";
+                string spinner = _spinnerFrames[_spinnerFrame];
+                AnsiConsole.Markup($"[blue]{spinner}[/] {_statusTitle} [grey]{timeStr}[/]");
+                Console.WriteLine();
+            }
+            else
+            {
+                // 如果没有 Status，但为了逻辑统一，我们确保光标位置正确
+                // 如果 statusLines=0, startTop 就是 TopLine 的位置
+                Console.SetCursorPosition(0, startTop);
+            }
+
+            // [Top Line]
+            Console.Write(clearLine);
+            Console.SetCursorPosition(0, Console.CursorTop);
+            Console.Write("\x1b[90m" + lineStr + "\x1b[0m");
+            Console.WriteLine();
+
+            // [Input Line]
+            int inputRowTop = Console.CursorTop;
+            Console.Write(clearLine);
+            Console.SetCursorPosition(0, inputRowTop);
+
+            AnsiConsole.Markup($"[grey]>>[/] ");
+            Console.Write(_inputBuffer.ToString());
+            Console.WriteLine();
+
+            // [Bottom Line]
+            Console.Write(clearLine);
+            Console.SetCursorPosition(0, Console.CursorTop);
+            Console.Write("\x1b[90m" + lineStr + "\x1b[0m");
+            // 最后一行不 WriteLine
+
+            // --- 恢复光标 ---
+            // 使用 DisplayWidth 计算
+            int cursorLeft = 3 + GetDisplayWidth(_inputBuffer.ToString());
+            if (cursorLeft >= safeWidth) cursorLeft = safeWidth - 1;
+
+            // 再次检查 inputRowTop 是否有效 (虽然我们预留了空间，但以防万一)
+            if (inputRowTop >= 0 && inputRowTop < Console.BufferHeight)
+            {
+                Console.SetCursorPosition(cursorLeft, inputRowTop);
+            }
         }
-        else
+        catch (Exception)
         {
-            // 如果没有 Status，但为了逻辑统一，我们确保光标位置正确
-            // 如果 statusLines=0, startTop 就是 TopLine 的位置
-            Console.SetCursorPosition(0, startTop);
+            // 如果渲染过程中发生任何异常，确保光标可见
+            Console.CursorVisible = true;
         }
+    }
 
-        // [Top Line]
-        Console.Write(clearLine); 
-        Console.SetCursorPosition(0, Console.CursorTop);
-        Console.Write("\x1b[90m" + lineStr + "\x1b[0m");
-        Console.WriteLine();
-
-        // [Input Line]
-        int inputRowTop = Console.CursorTop; 
-        Console.Write(clearLine); 
-        Console.SetCursorPosition(0, inputRowTop);
-        
-        AnsiConsole.Markup($"[grey]>>[/] ");
-        Console.Write(_inputBuffer.ToString());
-        Console.WriteLine();
-
-        // [Bottom Line]
-        Console.Write(clearLine);
-        Console.SetCursorPosition(0, Console.CursorTop);
-        Console.Write("\x1b[90m" + lineStr + "\x1b[0m");
-        // 最后一行不 WriteLine
-        
-        // --- 恢复光标 ---
-        int cursorLeft = 3 + _inputBuffer.Length;
-        if (cursorLeft >= safeWidth) cursorLeft = safeWidth - 1;
-
-        // 再次检查 inputRowTop 是否有效 (虽然我们预留了空间，但以防万一)
-        if (inputRowTop < Console.BufferHeight)
+    private int GetDisplayWidth(string s)
+    {
+        int width = 0;
+        foreach (char c in s)
         {
-            Console.SetCursorPosition(cursorLeft, inputRowTop);
+            // 更精确的东亚字符宽度判断
+            // 参考 Unicode East Asian Width 规范
+            if (IsFullWidth(c))
+                width += 2;
+            else
+                width += 1;
         }
+        return width;
+    }
+
+    private bool IsFullWidth(char c)
+    {
+        // CJK统一汉字
+        if (c >= 0x4E00 && c <= 0x9FFF) return true;
+        // CJK扩展A
+        if (c >= 0x3400 && c <= 0x4DBF) return true;
+        // 全角ASCII和全角标点
+        if (c >= 0xFF01 && c <= 0xFF60) return true;
+        // 全角字符
+        if (c >= 0xFFE0 && c <= 0xFFE6) return true;
+        // CJK符号和标点
+        if (c >= 0x3000 && c <= 0x303F) return true;
+        // 平假名和片假名
+        if (c >= 0x3040 && c <= 0x30FF) return true;
+        // 谚文音节（韩文）
+        if (c >= 0xAC00 && c <= 0xD7AF) return true;
+        // CJK兼容字符
+        if (c >= 0xF900 && c <= 0xFAFF) return true;
+
+        return false;
     }
 
     private void ClearBottomArea()
     {
         // 用于在输出新消息前，彻底清除底部的输入区
         // 逻辑：根据当前状态计算高度，向上清除
-        
+
         int statusLines = _isProcessing ? 1 : 0;
         int inputLineOffset = statusLines + 1;
         int totalLines = statusLines + 3;
@@ -380,15 +410,42 @@ public class ConsoleUserInterface : IUserInterface
 
         if (startTop < 0) startTop = 0;
 
+        // 安全检查：确保不会越界
+        if (startTop + totalLines > Console.BufferHeight)
+        {
+            startTop = Math.Max(0, Console.BufferHeight - totalLines);
+        }
+
         // 逐行清除
         for (int i = 0; i < totalLines; i++)
         {
-            Console.SetCursorPosition(0, startTop + i);
-            Console.Write(new string(' ', Console.WindowWidth));
+            int lineToC = startTop + i;
+            if (lineToC >= 0 && lineToC < Console.BufferHeight)
+            {
+                try
+                {
+                    Console.SetCursorPosition(0, lineToC);
+                    Console.Write(new string(' ', Math.Min(Console.WindowWidth, Console.BufferWidth)));
+                }
+                catch
+                {
+                    // 忽略位置设置错误，继续处理
+                }
+            }
         }
 
         // 将光标重置回起始位置，以便后续的正常输出（PrintUserMessage 等）从这里开始写
-        Console.SetCursorPosition(0, startTop);
+        try
+        {
+            if (startTop >= 0 && startTop < Console.BufferHeight)
+            {
+                Console.SetCursorPosition(0, startTop);
+            }
+        }
+        catch
+        {
+            // 如果设置失败，不做处理
+        }
     }
 
     private void ClearCurrentLine()
