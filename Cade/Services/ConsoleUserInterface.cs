@@ -17,6 +17,8 @@ public class ConsoleUserInterface : IUserInterface
     private DateTime _processStartTime = DateTime.Now;
     private int _bottomAreaStartLine = -1; // 记录底部区域的起始行号，-1 表示未渲染
     private int _lastWindowWidth = 0; // 记录上次的窗口宽度，用于检测窗口大小变化
+    private string _currentPath = ""; // 当前路径
+    private string _currentModelId = ""; // 当前模型ID
     
     private readonly ILogger<ConsoleUserInterface> _logger;
     private static int _messageCount = 0;
@@ -80,7 +82,18 @@ public class ConsoleUserInterface : IUserInterface
 
     public void SetStatus(string path, string modelId)
     {
-        // No-op for now or implement status bar if needed
+        lock (_consoleLock)
+        {
+            bool changed = _currentPath != path || _currentModelId != modelId;
+            _currentPath = path;
+            _currentModelId = modelId;
+            
+            // 如果状态改变且底部区域已渲染，则重绘
+            if (changed && _bottomAreaStartLine >= 0)
+            {
+                RenderBottomArea(overwrite: true);
+            }
+        }
     }
 
     public void SetProcessing(bool isProcessing, string? title = null)
@@ -300,7 +313,7 @@ public class ConsoleUserInterface : IUserInterface
         // 清除底部区域
         if (_bottomAreaStartLine >= 0)
         {
-            const int totalLines = 4;
+            const int totalLines = 5;
             int startTop = _bottomAreaStartLine;
             int safeWidth = Math.Max(0, Console.WindowWidth - 1);
             string clearLine = new string(' ', safeWidth);
@@ -333,7 +346,7 @@ public class ConsoleUserInterface : IUserInterface
         // 确保有足够的空间：用户消息 1 行 + 底部区域 4 行 = 5 行
         int currentTop = Console.CursorTop;
         int bufferHeight = Console.BufferHeight;
-        int neededLines = 5; // 1 行用户消息 + 4 行底部区域
+        int neededLines = 6; // 1 行用户消息 + 5 行底部区域
         
         if (currentTop + neededLines > bufferHeight)
         {
@@ -364,13 +377,14 @@ public class ConsoleUserInterface : IUserInterface
         _logger.LogInformation("RenderBottomArea START: overwrite={Overwrite}, _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", 
             overwrite, _bottomAreaStartLine, Console.CursorTop);
         
-        // 布局定义 (固定4行，简化逻辑):
+        // 布局定义 (固定5行):
         // 行偏移 0: [Status] (Processing 时显示动画，否则为空行)
         // 行偏移 1: Top Line (───)
         // 行偏移 2: Input (>> ...) <- 光标驻留在此
         // 行偏移 3: Bottom Line (───)
+        // 行偏移 4: Status Bar (路径 | 模型)
 
-        const int totalLines = 4;
+        const int totalLines = 5;
         const int inputLineOffset = 2; // 输入行在第3行（索引2）
 
         int safeWidth = Math.Max(0, Console.WindowWidth - 1);
@@ -457,6 +471,43 @@ public class ConsoleUserInterface : IUserInterface
             Console.Write(clearLine);
             Console.SetCursorPosition(0, Console.CursorTop);
             Console.Write("\x1b[90m" + lineStr + "\x1b[0m");
+            Console.WriteLine();
+
+            // [Status Bar] - 左边路径，右边模型
+            Console.Write(clearLine);
+            Console.SetCursorPosition(0, Console.CursorTop);
+            
+            // 构建状态栏内容
+            string pathDisplay = string.IsNullOrEmpty(_currentPath) ? "" : _currentPath;
+            
+            // 模型ID格式: uuid_modelname，只显示下划线后面的部分
+            string modelDisplay = "";
+            if (!string.IsNullOrEmpty(_currentModelId))
+            {
+                int underscoreIndex = _currentModelId.IndexOf('_');
+                modelDisplay = underscoreIndex >= 0 ? _currentModelId.Substring(underscoreIndex + 1) : _currentModelId;
+            }
+            
+            // 截断路径如果太长
+            int maxPathLen = safeWidth - modelDisplay.Length - 3; // 留出空间给模型和分隔符
+            if (maxPathLen > 0 && pathDisplay.Length > maxPathLen)
+            {
+                pathDisplay = "..." + pathDisplay.Substring(pathDisplay.Length - maxPathLen + 3);
+            }
+            
+            // 计算右对齐的模型位置
+            int modelStartPos = safeWidth - modelDisplay.Length;
+            if (modelStartPos < pathDisplay.Length + 1) modelStartPos = pathDisplay.Length + 1;
+            
+            // 输出路径（灰色）
+            AnsiConsole.Markup($"[grey]{Markup.Escape(pathDisplay)}[/]");
+            
+            // 输出模型（右对齐，青色）
+            if (!string.IsNullOrEmpty(modelDisplay) && modelStartPos < safeWidth)
+            {
+                Console.SetCursorPosition(modelStartPos, Console.CursorTop);
+                AnsiConsole.Markup($"[cyan]{Markup.Escape(modelDisplay)}[/]");
+            }
             // 最后一行不 WriteLine
 
             // --- 恢复光标 ---
@@ -530,8 +581,8 @@ public class ConsoleUserInterface : IUserInterface
         // 如果底部区域未渲染，无需清除
         if (_bottomAreaStartLine < 0) return;
         
-        // 固定4行
-        const int totalLines = 4;
+        // 固定5行
+        const int totalLines = 5;
         
         int startTop = _bottomAreaStartLine;
         

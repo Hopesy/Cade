@@ -141,8 +141,9 @@ public class CadeHostedService : BackgroundService
             var summary = ExtractSummary(_viewModel.LastResponse);
             _ui.ShowResponseHeader(summary);
 
-            // 显示完整的 AI 回复（会自动停止头部动画）
-            _ui.ShowResponse(_viewModel.LastResponse);
+            // 显示完整的 AI 回复，跳过第一行（避免与标题重复）
+            var responseBody = RemoveFirstLine(_viewModel.LastResponse);
+            _ui.ShowResponse(responseBody);
         }
         catch (Exception ex)
         {
@@ -159,33 +160,35 @@ public class CadeHostedService : BackgroundService
         if (string.IsNullOrWhiteSpace(response))
             return "AI 回复";
 
+        // 获取第一行
+        var firstLine = response.Split('\n')[0].Trim();
+        
         // 移除 Markdown 标记
-        var text = response.Trim();
-
-        // 移除代码块
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"```.*?```", "", System.Text.RegularExpressions.RegexOptions.Singleline);
-
-        // 移除行内代码
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"`[^`]+`", "");
-
-        // 移除标题标记
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"^#+\s*", "", System.Text.RegularExpressions.RegexOptions.Multiline);
-
-        // 移除粗体和斜体
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*([^\*]+)\*\*", "$1");
-        text = System.Text.RegularExpressions.Regex.Replace(text, @"\*([^\*]+)\*", "$1");
-
-        // 获取第一句话（以句号、问号、感叹号结尾）
-        var firstSentence = System.Text.RegularExpressions.Regex.Match(text, @"^[^。！？\n]+[。！？]?");
-        var summary = firstSentence.Success ? firstSentence.Value.Trim() : text.Split('\n')[0].Trim();
+        firstLine = System.Text.RegularExpressions.Regex.Replace(firstLine, @"^#+\s*", "");
+        firstLine = System.Text.RegularExpressions.Regex.Replace(firstLine, @"\*\*([^\*]+)\*\*", "$1");
+        firstLine = System.Text.RegularExpressions.Regex.Replace(firstLine, @"\*([^\*]+)\*", "$1");
+        firstLine = System.Text.RegularExpressions.Regex.Replace(firstLine, @"`[^`]+`", "");
 
         // 限制长度
-        if (summary.Length > 60)
+        if (firstLine.Length > 60)
         {
-            summary = summary.Substring(0, 57) + "...";
+            firstLine = firstLine.Substring(0, 57) + "...";
         }
 
-        return string.IsNullOrWhiteSpace(summary) ? "AI 回复" : summary;
+        return string.IsNullOrWhiteSpace(firstLine) ? "AI 回复" : firstLine;
+    }
+
+    private string RemoveFirstLine(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return content;
+
+        var lines = content.Split('\n');
+        if (lines.Length <= 1)
+            return string.Empty;
+
+        // 跳过第一行，返回剩余内容
+        return string.Join('\n', lines.Skip(1)).TrimStart('\r', '\n');
     }
 
     private async Task HandleCommandAsync(string input)
