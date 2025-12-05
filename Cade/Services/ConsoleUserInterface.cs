@@ -16,6 +16,7 @@ public class ConsoleUserInterface : IUserInterface
     private string _statusTitle = "Thinking...";
     private DateTime _processStartTime = DateTime.Now;
     private int _bottomAreaStartLine = -1; // 记录底部区域的起始行号，-1 表示未渲染
+    private int _lastWindowWidth = 0; // 记录上次的窗口宽度，用于检测窗口大小变化
     
     private readonly ILogger<ConsoleUserInterface> _logger;
     private static int _messageCount = 0;
@@ -120,6 +121,18 @@ public class ConsoleUserInterface : IUserInterface
     {
         lock (_consoleLock)
         {
+            // 检测窗口大小变化，如果变化则清屏（避免横线换行导致的混乱）
+            int currentWidth = Console.WindowWidth;
+            if (_lastWindowWidth != currentWidth && _lastWindowWidth > 0)
+            {
+                _lastWindowWidth = currentWidth;
+                // 窗口大小变化时，清屏并重新显示欢迎界面
+                AnsiConsole.Clear();
+                _bottomAreaStartLine = -1;
+                ShowWelcome();
+                return;
+            }
+            
             // 更新 AI 回复头部动画
             if (_showingResponseHeader)
             {
@@ -461,8 +474,9 @@ public class ConsoleUserInterface : IUserInterface
             // 渲染完成后恢复光标显示
             Console.CursorVisible = wasCursorVisible || !_isProcessing;
             
-            // 记录底部区域的起始行号
+            // 记录底部区域的起始行号和当前窗口宽度
             _bottomAreaStartLine = startTop;
+            _lastWindowWidth = Console.WindowWidth;
             
             _logger.LogInformation("RenderBottomArea END: startTop={StartTop}, _bottomAreaStartLine={BottomLine}", startTop, _bottomAreaStartLine);
         }

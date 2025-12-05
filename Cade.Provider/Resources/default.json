@@ -1,7 +1,0 @@
-{
-  "Type": "OpenAICompatible",
-  "ApiKey": "sk-d9b134aab791425c92c54954355afba5",
-  "BaseUrl": "https://api.deepseek.com/v1",
-  "ModelIds": "deepseek-chat,deepseek-reasoner",
-  "IsEnabled": true
-}
