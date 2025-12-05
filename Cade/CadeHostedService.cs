@@ -34,19 +34,7 @@ public class CadeHostedService : BackgroundService
         _providerService = providerService;
         _configuration = configuration;
         _aiService = aiService;
-
-        // 订阅工具调用事件
-        _aiService.ToolCalled += OnToolCalled;
-    }
-
-    private void OnToolCalled(object? sender, ToolCallEventArgs e)
-    {
-        // 在 UI 中显示工具调用日志
-        var parameters = string.IsNullOrWhiteSpace(e.Parameters) || e.Parameters == "{}"
-            ? ""
-            : $" {e.Parameters}";
-
-        _ui.ShowToolLog(e.ToolName, parameters, e.Output);
+        // 工具调用由 ToolCallFilter 处理，不再订阅事件
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -117,6 +105,8 @@ public class CadeHostedService : BackgroundService
                     }
                     else
                     {
+                        // 同步设置处理状态，确保用户消息已渲染后再清除底部区域
+                        _ui.SetProcessing(true, "正在思考...");
                         // 后台处理 AI 请求
                         _ = Task.Run(() => ProcessAiInputAsync(input));
                     }
@@ -138,9 +128,7 @@ public class CadeHostedService : BackgroundService
 
         try
         {
-            // 底部状态栏显示"思考"动画
-            _ui.SetProcessing(true, "正在思考...");
-
+            // SetProcessing 已在主循环中同步调用，这里不再重复调用
             _viewModel.CurrentInput = input;
 
             // 等待 AI 回复（此时思考动画在底部运行）

@@ -1,43 +1,42 @@
-using Microsoft.Extensions.AI;
 using Cade.Provider.Models;
+using Microsoft.SemanticKernel;
 
 namespace Cade.Provider.Services.Interfaces;
 
 /// <summary>
-/// AI 服务管理接口
+/// AI 服务管理接口 (基于 Semantic Kernel)
 /// </summary>
 public interface IProviderService
 {
     /// <summary>
-    /// 从配置加载所有模型
+    /// 从配置加载 Kernel
     /// </summary>
-    /// <param name="configuration">配置对象</param>
-    /// <param name="configName">配置文件名</param>
     Task LoadModelsFromConfigAsync(ProviderConfig configuration, string configName);
 
     /// <summary>
     /// 获取所有可用的模型列表
     /// </summary>
-    /// <returns>模型配置列表</returns>
     List<ModelConfig> GetAvailableModels();
 
     /// <summary>
-    /// 发送消息到指定模型
+    /// 获取当前 Kernel 实例
     /// </summary>
-    /// <param name="modelId">模型ID</param>
-    /// <param name="historyMessages">聊天消息列表</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>AI响应</returns>
-    Task<string> SendMessageAsync(string modelId, List<ChatMessage> historyMessages, CancellationToken cancellationToken = default);
+    Kernel? GetKernel();
 
     /// <summary>
-    /// 发送消息并获取流式响应
+    /// 获取当前选中的模型ID
     /// </summary>
-    /// <param name="modelId">模型ID</param>
-    /// <param name="histtoryMessages">聊天消息列表</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>流式响应</returns>
-    IAsyncEnumerable<string> SendMessageStreamAsync(string modelId, List<ChatMessage> histtoryMessages, CancellationToken cancellationToken = default);
+    string? GetCurrentModelId();
+
+    /// <summary>
+    /// 设置当前使用的模型
+    /// </summary>
+    void SetCurrentModel(string modelConfigId);
+
+    /// <summary>
+    /// 添加插件到 Kernel
+    /// </summary>
+    void AddPlugin(KernelPlugin plugin);
 
     /// <summary>
     /// 获取当前加载的模型数量

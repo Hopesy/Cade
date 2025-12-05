@@ -1,6 +1,7 @@
 using System;
 using System.Text;
 using Cade.Interfaces;
+using Microsoft.Extensions.Logging;
 using Spectre.Console;
 using Spectre.Console.Json;
 
@@ -14,6 +15,15 @@ public class ConsoleUserInterface : IUserInterface
     private bool _isProcessing = false;
     private string _statusTitle = "Thinking...";
     private DateTime _processStartTime = DateTime.Now;
+    private int _bottomAreaStartLine = -1; // 记录底部区域的起始行号，-1 表示未渲染
+    
+    private readonly ILogger<ConsoleUserInterface> _logger;
+    private static int _messageCount = 0;
+    
+    public ConsoleUserInterface(ILogger<ConsoleUserInterface> logger)
+    {
+        _logger = logger;
+    }
 
     // Spinner state
     private readonly string[] _spinnerFrames = {
@@ -76,15 +86,14 @@ public class ConsoleUserInterface : IUserInterface
     {
         lock (_consoleLock)
         {
-            if (isProcessing && !_isProcessing)
+            bool wasProcessing = _isProcessing;
+            
+            if (isProcessing && !wasProcessing)
             {
                 _processStartTime = DateTime.Now;
                 _spinnerFrame = 0;
                 Console.CursorVisible = false; // 隐藏光标
             }
-
-            // 必须在改变状态前清除旧区域，因为 ClearBottomArea 依赖 _isProcessing 来计算高度
-            ClearBottomArea();
 
             _isProcessing = isProcessing;
             if (title != null) _statusTitle = title;
@@ -95,44 +104,41 @@ public class ConsoleUserInterface : IUserInterface
                 Console.CursorVisible = true; // 恢复光标
             }
 
-            // Re-render to show/hide status line
-            RenderBottomArea();
+            // 由于底部区域固定为4行，只需要重绘即可（不需要清除）
+            if (_bottomAreaStartLine >= 0)
+            {
+                RenderBottomArea(overwrite: true);
+            }
+            else
+            {
+                RenderBottomArea();
+            }
         }
     }
 
     public void Update()
     {
-        bool needRender = false;
-
-        // 更新 AI 回复头部动画
-        if (_showingResponseHeader)
+        lock (_consoleLock)
         {
-            // Gemini 风格：更快的脉动效果
-            if ((DateTime.Now - _lastSpinnerTick).TotalMilliseconds > 150)
+            // 更新 AI 回复头部动画
+            if (_showingResponseHeader)
             {
-                _aiDotFrame = (_aiDotFrame + 1) % _aiResponseDots.Length;
-                _lastSpinnerTick = DateTime.Now;
-
-                lock (_consoleLock)
+                // Gemini 风格：更快的脉动效果
+                if ((DateTime.Now - _lastSpinnerTick).TotalMilliseconds > 150)
                 {
+                    _aiDotFrame = (_aiDotFrame + 1) % _aiResponseDots.Length;
+                    _lastSpinnerTick = DateTime.Now;
                     UpdateResponseHeader();
                 }
             }
-        }
-        else if (_isProcessing)
-        {
-            // 更新底部处理状态（思考动画）
-            if ((DateTime.Now - _lastSpinnerTick).TotalMilliseconds > 100)
+            else if (_isProcessing && _bottomAreaStartLine >= 0)
             {
-                _spinnerFrame = (_spinnerFrame + 1) % _spinnerFrames.Length;
-                _lastSpinnerTick = DateTime.Now;
-                needRender = true;
-            }
-
-            if (needRender)
-            {
-                lock (_consoleLock)
+                // 更新底部处理状态（思考动画）
+                // 只有在底部区域已渲染时才更新
+                if ((DateTime.Now - _lastSpinnerTick).TotalMilliseconds > 100)
                 {
+                    _spinnerFrame = (_spinnerFrame + 1) % _spinnerFrames.Length;
+                    _lastSpinnerTick = DateTime.Now;
                     RenderBottomArea(overwrite: true);
                 }
             }
@@ -263,6 +269,7 @@ public class ConsoleUserInterface : IUserInterface
     {
         lock (_consoleLock)
         {
+            // 总是尝试清除底部区域
             ClearBottomArea();
             action();
             RenderBottomArea();
@@ -271,24 +278,87 @@ public class ConsoleUserInterface : IUserInterface
 
     private void PrintUserMessage(string message)
     {
-        ClearBottomArea();
+        _messageCount++;
+        int msgNum = _messageCount;
+        
+        _logger.LogInformation("PrintUserMessage #{MsgNum} START: message='{Message}', _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", 
+            msgNum, message, _bottomAreaStartLine, Console.CursorTop);
+        
+        // 清除底部区域
+        if (_bottomAreaStartLine >= 0)
+        {
+            const int totalLines = 4;
+            int startTop = _bottomAreaStartLine;
+            int safeWidth = Math.Max(0, Console.WindowWidth - 1);
+            string clearLine = new string(' ', safeWidth);
+            
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: Clearing {TotalLines} lines from {StartTop}", msgNum, totalLines, startTop);
+            
+            for (int i = 0; i < totalLines; i++)
+            {
+                int lineToC = startTop + i;
+                if (lineToC >= 0 && lineToC < Console.BufferHeight)
+                {
+                    Console.SetCursorPosition(0, lineToC);
+                    Console.Write(clearLine);
+                }
+            }
+            
+            // 光标回到起始位置
+            Console.SetCursorPosition(0, startTop);
+            _bottomAreaStartLine = -1;
+            
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: After clear, CursorTop={CursorTop}", msgNum, Console.CursorTop);
+            
+            Console.Out.Flush();
+        }
+        else
+        {
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: No bottom area to clear, CursorTop={CursorTop}", msgNum, Console.CursorTop);
+        }
 
-        // 简单渲染用户消息: -> message
-        AnsiConsole.MarkupLine($"[green]->[/] [bold white]{Markup.Escape(message)}[/]");
-        AnsiConsole.WriteLine(); // 添加空行，确保光标在新行
+        // 确保有足够的空间：用户消息 1 行 + 底部区域 4 行 = 5 行
+        int currentTop = Console.CursorTop;
+        int bufferHeight = Console.BufferHeight;
+        int neededLines = 5; // 1 行用户消息 + 4 行底部区域
+        
+        if (currentTop + neededLines > bufferHeight)
+        {
+            int linesToScroll = currentTop + neededLines - bufferHeight;
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: Need to scroll {Lines} lines for space", msgNum, linesToScroll);
+            
+            for (int i = 0; i < linesToScroll; i++)
+            {
+                Console.WriteLine();
+            }
+            // 滚屏后光标会在新位置，需要回到正确的位置
+            // 滚屏后，原来的 currentTop 位置的内容向上移动了 linesToScroll 行
+            // 新的写入位置应该是 bufferHeight - neededLines
+            Console.SetCursorPosition(0, bufferHeight - neededLines);
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: After scroll, CursorTop={CursorTop}", msgNum, Console.CursorTop);
+        }
+
+        // 打印用户消息
+        _logger.LogInformation("PrintUserMessage #{MsgNum}: Writing message at CursorTop={CursorTop}", msgNum, Console.CursorTop);
+        Console.WriteLine($"\x1b[32m->\x1b[0m \x1b[1;37m{message}\x1b[0m");
+        Console.Out.Flush();
+        
+        _logger.LogInformation("PrintUserMessage #{MsgNum} END: CursorTop={CursorTop}", msgNum, Console.CursorTop);
     }
 
     private void RenderBottomArea(bool overwrite = false)
     {
-        // 布局定义:
-        // 行偏移 0: [Status] (仅当 Processing 时存在)
+        _logger.LogInformation("RenderBottomArea START: overwrite={Overwrite}, _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", 
+            overwrite, _bottomAreaStartLine, Console.CursorTop);
+        
+        // 布局定义 (固定4行，简化逻辑):
+        // 行偏移 0: [Status] (Processing 时显示动画，否则为空行)
         // 行偏移 1: Top Line (───)
         // 行偏移 2: Input (>> ...) <- 光标驻留在此
         // 行偏移 3: Bottom Line (───)
 
-        int statusLines = _isProcessing ? 1 : 0;
-        int inputLineOffset = statusLines + 1;
-        int totalLines = statusLines + 3;
+        const int totalLines = 4;
+        const int inputLineOffset = 2; // 输入行在第3行（索引2）
 
         int safeWidth = Math.Max(0, Console.WindowWidth - 1);
         string lineStr = new string('─', safeWidth);
@@ -298,46 +368,32 @@ public class ConsoleUserInterface : IUserInterface
 
         if (!overwrite)
         {
-            // --- 关键修正：空间预留 (Space Reservation) ---
-            // 确保有足够的缓冲区行数来绘制 totalLines。
-            // 如果空间不足，主动 WriteLine 滚屏。
-
-            int currentTop = Console.CursorTop;
-            int bufferHeight = Console.BufferHeight;
-
-            // 预测需要的底部位置
-            int neededBottom = currentTop + totalLines;
-
-            // 如果需要的底部超出了缓冲区高度
-            if (neededBottom > bufferHeight)
-            {
-                // 需要滚动的行数
-                int linesToScroll = neededBottom - bufferHeight;
-
-                // 限制，防止无限循环
-                linesToScroll = Math.Min(linesToScroll, 20);
-
-                for (int i = 0; i < linesToScroll; i++)
-                {
-                    Console.WriteLine();
-                }
-            }
-
-            // 滚屏后，CursorTop 会更新。重新获取起始位置。
+            // 直接使用当前光标位置作为底部区域的起始位置
+            // 不再滚屏，避免覆盖用户消息
             startTop = Console.CursorTop;
-
-            // 再次检查边界：如果因为滚屏导致 CursorTop 顶到了 BufferHeight (极罕见情况)
-            // 强制回退 startTop
+            
+            // 如果空间不够，向上调整 startTop，但不能小于 0
+            int bufferHeight = Console.BufferHeight;
             if (startTop + totalLines > bufferHeight)
             {
                 startTop = Math.Max(0, bufferHeight - totalLines);
             }
+            
+            _logger.LogInformation("RenderBottomArea: startTop={StartTop}, bufferHeight={BufferHeight}", startTop, bufferHeight);
         }
         else
         {
-            // 重绘模式：回溯到起始位置
-            int currentTop = Console.CursorTop;
-            startTop = currentTop - inputLineOffset;
+            // 重绘模式：使用记录的起始行号
+            if (_bottomAreaStartLine >= 0)
+            {
+                startTop = _bottomAreaStartLine;
+            }
+            else
+            {
+                // 如果没有记录，回溯到起始位置
+                int currentTop = Console.CursorTop;
+                startTop = currentTop - inputLineOffset;
+            }
 
             // 保护性检查
             if (startTop < 0) startTop = 0;
@@ -354,25 +410,20 @@ public class ConsoleUserInterface : IUserInterface
             bool wasCursorVisible = Console.CursorVisible;
             Console.CursorVisible = false;
 
-            // [Status Line]
+            // [Status Line] - 第1行，总是存在
+            Console.SetCursorPosition(0, startTop);
+            Console.Write(clearLine);
+            Console.SetCursorPosition(0, startTop);
+
             if (_isProcessing)
             {
-                Console.SetCursorPosition(0, startTop);
-                Console.Write(clearLine);
-                Console.SetCursorPosition(0, startTop);
-
                 var elapsed = DateTime.Now - _processStartTime;
                 string timeStr = $"({elapsed.TotalSeconds:F1}s)";
                 string spinner = _spinnerFrames[_spinnerFrame];
                 AnsiConsole.Markup($"[blue]{spinner}[/] {_statusTitle} [grey]{timeStr}[/]");
-                Console.WriteLine();
             }
-            else
-            {
-                // 如果没有 Status，但为了逻辑统一，我们确保光标位置正确
-                // 如果 statusLines=0, startTop 就是 TopLine 的位置
-                Console.SetCursorPosition(0, startTop);
-            }
+            // 如果不是 Processing，状态行为空
+            Console.WriteLine();
 
             // [Top Line]
             Console.Write(clearLine);
@@ -409,11 +460,17 @@ public class ConsoleUserInterface : IUserInterface
 
             // 渲染完成后恢复光标显示
             Console.CursorVisible = wasCursorVisible || !_isProcessing;
+            
+            // 记录底部区域的起始行号
+            _bottomAreaStartLine = startTop;
+            
+            _logger.LogInformation("RenderBottomArea END: startTop={StartTop}, _bottomAreaStartLine={BottomLine}", startTop, _bottomAreaStartLine);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // 如果渲染过程中发生任何异常，确保光标可见
             Console.CursorVisible = true;
+            _logger.LogError(ex, "RenderBottomArea ERROR");
         }
     }
 
@@ -456,26 +513,18 @@ public class ConsoleUserInterface : IUserInterface
 
     private void ClearBottomArea()
     {
-        // 用于在输出新消息前，彻底清除底部的输入区
-        // 逻辑：根据当前状态计算高度，向上清除
-
-        int statusLines = _isProcessing ? 1 : 0;
-        int inputLineOffset = statusLines + 1;
-        int totalLines = statusLines + 3;
-
-        int currentTop = Console.CursorTop;
-        // 假设光标目前在 Input 行 (因为 RenderBottomArea 总是把光标放回那里)
-        int startTop = currentTop - inputLineOffset;
-
-        if (startTop < 0) startTop = 0;
-
-        // 安全检查：确保不会越界
-        if (startTop + totalLines > Console.BufferHeight)
-        {
-            startTop = Math.Max(0, Console.BufferHeight - totalLines);
-        }
-
-        // 逐行清除
+        // 如果底部区域未渲染，无需清除
+        if (_bottomAreaStartLine < 0) return;
+        
+        // 固定4行
+        const int totalLines = 4;
+        
+        int startTop = _bottomAreaStartLine;
+        
+        // 清除底部区域
+        int safeWidth = Math.Max(0, Console.WindowWidth - 1);
+        string clearLine = new string(' ', safeWidth);
+        
         for (int i = 0; i < totalLines; i++)
         {
             int lineToC = startTop + i;
@@ -484,27 +533,18 @@ public class ConsoleUserInterface : IUserInterface
                 try
                 {
                     Console.SetCursorPosition(0, lineToC);
-                    Console.Write(new string(' ', Math.Min(Console.WindowWidth, Console.BufferWidth)));
+                    Console.Write(clearLine);
                 }
                 catch
                 {
-                    // 忽略位置设置错误，继续处理
+                    // 忽略
                 }
             }
         }
 
-        // 将光标重置回起始位置，以便后续的正常输出（PrintUserMessage 等）从这里开始写
-        try
-        {
-            if (startTop >= 0 && startTop < Console.BufferHeight)
-            {
-                Console.SetCursorPosition(0, startTop);
-            }
-        }
-        catch
-        {
-            // 如果设置失败，不做处理
-        }
+        // 光标回到起始位置
+        Console.SetCursorPosition(0, startTop);
+        _bottomAreaStartLine = -1;
     }
 
     private void ClearCurrentLine()

@@ -1,7 +1,6 @@
-using Cade.Interfaces;
+using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading.Tasks;
-using Spectre.Console;
+using Cade.Interfaces;
 
 namespace Cade.Services;
 
@@ -20,8 +19,20 @@ public class MockAiService : IAiService
 
     public async Task<string> GetResponseAsync(string input, string modelId)
     {
-        // 始终调用 SimulateAgentLoopAsync 来模拟工具链过程
         return await SimulateAgentLoopAsync(input);
+    }
+
+    public async IAsyncEnumerable<string> GetStreamingResponseAsync(
+        string input, 
+        string modelId,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var response = await SimulateAgentLoopAsync(input);
+        foreach (var chunk in response.Chunk(10))
+        {
+            yield return new string(chunk);
+            await Task.Delay(50, cancellationToken);
+        }
     }
 
     private async Task<string> SimulateAgentLoopAsync(string input)

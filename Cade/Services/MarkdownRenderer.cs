@@ -106,14 +106,11 @@ public static class MarkdownRenderer
         return parts;
     }
 
-    private static Panel CreateCodeBlockPanel(string code, string language)
+    private static IRenderable CreateCodeBlockPanel(string code, string language)
     {
         code = code.TrimEnd();
 
-        var languageLabel = string.IsNullOrWhiteSpace(language) ? "code" : language;
-
-        // 使用简单的语法高亮功能
-        IRenderable codeRenderable;
+        var languageLabel = string.IsNullOrWhiteSpace(language) ? "" : $"[dim]{language}[/]\n";
 
         try
         {
@@ -121,33 +118,20 @@ public static class MarkdownRenderer
 
             if (!string.IsNullOrWhiteSpace(syntaxLanguage))
             {
-                // 应用语法高亮
                 var highlightedCode = ApplySyntaxHighlighting(code, syntaxLanguage);
-                codeRenderable = new Markup(highlightedCode);
+                return new Markup($"{languageLabel}{highlightedCode}");
             }
             else
             {
-                // 如果语言不支持，使用纯文本
                 var escapedCode = EscapeMarkup(code);
-                codeRenderable = new Markup($"[grey]{escapedCode}[/]");
+                return new Markup($"{languageLabel}[grey]{escapedCode}[/]");
             }
         }
         catch
         {
-            // 如果高亮失败，降级到纯文本
             var escapedCode = EscapeMarkup(code);
-            codeRenderable = new Markup($"[grey]{escapedCode}[/]");
+            return new Markup($"{languageLabel}[grey]{escapedCode}[/]");
         }
-
-        var panel = new Panel(codeRenderable)
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey),
-            Padding = new Padding(1, 0, 1, 0),
-            Header = new PanelHeader($" [dim]{languageLabel}[/] ", Justify.Left)
-        };
-
-        return panel;
     }
 
     /// <summary>

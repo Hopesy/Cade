@@ -18,5 +18,13 @@ public interface IAiService
     /// </summary>
     event EventHandler<ToolCallEventArgs>? ToolCalled;
 
+    /// <summary>
+    /// 获取 AI 响应 (支持自动工具调用)
+    /// </summary>
     Task<string> GetResponseAsync(string input, string modelId);
+
+    /// <summary>
+    /// 流式获取 AI 响应
+    /// </summary>
+    IAsyncEnumerable<string> GetStreamingResponseAsync(string input, string modelId, CancellationToken cancellationToken = default);
 }
