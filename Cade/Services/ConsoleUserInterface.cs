@@ -67,8 +67,6 @@ public class ConsoleUserInterface : IUserInterface
                 .Color(PrimaryColor)
                 .LeftJustified());
 
-        AnsiConsole.WriteLine();
-
         // 提示信息
         AnsiConsole.MarkupLine("[bold]Tips for getting started:[/]");
         AnsiConsole.MarkupLine("  [grey]1.[/] Ask questions, edit files, or run commands.");
