@@ -17,6 +17,9 @@ public class ProviderConfigService : IProviderConfigService
     private readonly string _configDirectory;
     private readonly string _appSettingsFilePath;
     private string _currentConfigFileName = "default";
+    // 用户配置目录：~/.cade
+    private readonly string _userConfigDirectory;
+    
     public ProviderConfigService(ILogger<ProviderConfigService> logger)
     {
         _logger = logger;
@@ -25,8 +28,12 @@ public class ProviderConfigService : IProviderConfigService
         _configDirectory = Path.Combine(appDirectory, "Data", "Providers");
         // appsettings.json 文件路径
         _appSettingsFilePath = Path.Combine(appDirectory, "appsettings.json");
+        // 用户配置目录：~/.cade
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        _userConfigDirectory = Path.Combine(userProfile, ".cade");
         // 确保目录存在
         Directory.CreateDirectory(_configDirectory);
+        Directory.CreateDirectory(_userConfigDirectory);
         // 从 appsettings.json 加载当前配置文件名
         LoadCurrentConfigFileName();
     }
@@ -183,9 +190,8 @@ public class ProviderConfigService : IProviderConfigService
         {
             var defaultConfigPath = Path.Combine(_configDirectory, "default.json");
             
-            // 优先尝试从应用程序根目录查找 settings.json 并同步配置
-            var appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            var settingsPath = Path.Combine(appDirectory, "settings.json");
+            // 优先尝试从用户配置目录 (~/.cade) 查找 settings.json 并同步配置
+            var settingsPath = Path.Combine(_userConfigDirectory, "settings.json");
 
             if (File.Exists(settingsPath))
             {

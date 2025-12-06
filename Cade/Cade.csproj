@@ -26,12 +26,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="settings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <!-- 编译后复制 settings.json 到 ~/.cade 目录（如果不存在） -->
+  <Target Name="CopySettingsToUserDir" AfterTargets="Build">
+    <PropertyGroup>
+      <CadeUserDir>$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))\.cade</CadeUserDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(CadeUserDir)" Condition="!Exists('$(CadeUserDir)')" />
+    <Copy SourceFiles="..\Cade.Provider\settings.json" 
+          DestinationFiles="$(CadeUserDir)\settings.json" 
+          Condition="!Exists('$(CadeUserDir)\settings.json')" />
+  </Target>
 
 </Project>
