@@ -293,10 +293,34 @@ public class ConsoleUserInterface : IUserInterface
     {
         lock (_consoleLock)
         {
+            _logger.LogInformation("SafeRender START: _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", _bottomAreaStartLine, Console.CursorTop);
+            
             // 总是尝试清除底部区域
             ClearBottomArea();
+            
+            _logger.LogInformation("SafeRender after ClearBottomArea: CursorTop={CursorTop}", Console.CursorTop);
+            
             action();
+            
+            _logger.LogInformation("SafeRender after action: CursorTop={CursorTop}", Console.CursorTop);
+            
+            // 确保有足够空间渲染底部区域（5行），如果不够则滚屏
+            const int totalLines = 5;
+            int currentTop = Console.CursorTop;
+            int bufferHeight = Console.BufferHeight;
+            if (currentTop + totalLines > bufferHeight)
+            {
+                int linesToScroll = currentTop + totalLines - bufferHeight;
+                _logger.LogInformation("SafeRender: Need to scroll {Lines} lines", linesToScroll);
+                for (int i = 0; i < linesToScroll; i++)
+                {
+                    Console.WriteLine();
+                }
+            }
+            
             RenderBottomArea();
+            
+            _logger.LogInformation("SafeRender END: _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", _bottomAreaStartLine, Console.CursorTop);
         }
     }
 
@@ -589,6 +613,8 @@ public class ConsoleUserInterface : IUserInterface
         
         int startTop = _bottomAreaStartLine;
         
+        _logger.LogInformation("ClearBottomArea: startTop={StartTop}, CursorTop={CursorTop}", startTop, Console.CursorTop);
+        
         // 清除底部区域
         int safeWidth = Math.Max(0, Console.WindowWidth - 1);
         string clearLine = new string(' ', safeWidth);
@@ -613,6 +639,8 @@ public class ConsoleUserInterface : IUserInterface
         // 光标回到起始位置
         Console.SetCursorPosition(0, startTop);
         _bottomAreaStartLine = -1;
+        
+        _logger.LogInformation("ClearBottomArea END: CursorTop={CursorTop}", Console.CursorTop);
     }
 
     private void ClearCurrentLine()
