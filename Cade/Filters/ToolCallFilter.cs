@@ -34,7 +34,10 @@ public class ToolCallFilter : IFunctionInvocationFilter
         var maxLen = Math.Max(20, Console.WindowWidth - 20);
         if (safeDisplayName.Length > maxLen)
             safeDisplayName = safeDisplayName[..maxLen] + "...";
-        _ui.SetProcessing(true, $"● {safeDisplayName}");
+        
+        // 根据工具类型显示简短的操作说明
+        var actionHint = GetActionHint(functionName);
+        _ui.SetProcessing(true, $"{actionHint} {safeDisplayName}");
 
         try
         {
@@ -85,6 +88,31 @@ public class ToolCallFilter : IFunctionInvocationFilter
     {
         "content", "text", "body", "data", "input", "code", "script", "json", "xml", "html"
     };
+
+    // 根据工具名返回操作提示
+    private static string GetActionHint(string functionName)
+    {
+        return functionName switch
+        {
+            "ReadFile" => "📖 读取",
+            "WriteFile" => "✏️ 写入",
+            "AppendToFile" => "➕ 追加",
+            "ReplaceInFile" => "🔄 替换",
+            "CreateDirectory" => "📁 创建目录",
+            "Delete" => "🗑️ 删除",
+            "Move" => "📦 移动",
+            "Copy" => "📋 复制",
+            "ListDirectory" => "📂 列出",
+            "SearchFiles" => "🔍 搜索",
+            "Grep" => "🔎 查找",
+            "GetInfo" => "ℹ️ 获取信息",
+            "ExecuteCommand" => "⚡ 执行",
+            "GetSystemInfo" => "💻 系统信息",
+            "GetTime" => "🕐 时间",
+            "GetNetworkInfo" => "🌐 网络信息",
+            _ => "●"
+        };
+    }
 
     private static string BuildArgsDisplay(KernelArguments? arguments)
     {
