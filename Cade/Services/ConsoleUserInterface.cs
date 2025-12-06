@@ -630,7 +630,7 @@ public class ConsoleUserInterface : IUserInterface
         });
     }
 
-    public void ShowResponse(string content)
+    public void ShowResponse(string content, string? header = null)
     {
         // 停止动画
         _showingResponseHeader = false;
@@ -640,28 +640,39 @@ public class ConsoleUserInterface : IUserInterface
 
         SafeRender(() =>
         {
-            Spectre.Console.Rendering.IRenderable contentRenderable;
-            try
+            // 如果有标题，先显示标题
+            if (!string.IsNullOrEmpty(header))
             {
-                var parsed = MarkdownRenderer.Parse(content);
-                if (parsed.Elements.Count > 0)
-                {
-                    contentRenderable = new Rows(parsed.Elements);
-                }
-                else
-                {
-                    contentRenderable = new Text(string.Empty);
-                }
-            }
-            catch
-            {
-                // 如果解析失败，则作为纯文本显示
-                contentRenderable = new Text(content);
+                AnsiConsole.MarkupLine($"[{PrimaryColor.ToMarkup()}]⋮[/] {Markup.Escape(header)}");
+                AnsiConsole.WriteLine();
             }
 
-            // 直接渲染内容，移除 Panel 边框
-            AnsiConsole.Write(contentRenderable);
-            AnsiConsole.WriteLine();
+            // 显示内容
+            if (!string.IsNullOrWhiteSpace(content))
+            {
+                Spectre.Console.Rendering.IRenderable contentRenderable;
+                try
+                {
+                    var parsed = MarkdownRenderer.Parse(content);
+                    if (parsed.Elements.Count > 0)
+                    {
+                        contentRenderable = new Rows(parsed.Elements);
+                    }
+                    else
+                    {
+                        contentRenderable = new Text(string.Empty);
+                    }
+                }
+                catch
+                {
+                    // 如果解析失败，则作为纯文本显示
+                    contentRenderable = new Text(content);
+                }
+
+                // 直接渲染内容，移除 Panel 边框
+                AnsiConsole.Write(contentRenderable);
+                AnsiConsole.WriteLine();
+            }
         });
     }
 

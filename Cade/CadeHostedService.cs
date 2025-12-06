@@ -137,13 +137,10 @@ public class CadeHostedService : BackgroundService
             // 收到回复后，停止思考动画
             _ui.SetProcessing(false);
 
-            // 提取回复的第一句话作为总结
+            // 提取回复的第一句话作为总结，显示完整回复（跳过第一行避免重复）
             var summary = ExtractSummary(_viewModel.LastResponse);
-            _ui.ShowResponseHeader(summary);
-
-            // 显示完整的 AI 回复，跳过第一行（避免与标题重复）
             var responseBody = RemoveFirstLine(_viewModel.LastResponse);
-            _ui.ShowResponse(responseBody);
+            _ui.ShowResponse(responseBody, summary);
         }
         catch (Exception ex)
         {
