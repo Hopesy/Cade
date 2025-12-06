@@ -1,89 +1,349 @@
 # Cade
 
-基于 .NET 10 和 Semantic Kernel 的终端 AI 编程助手，支持工具调用和 MCP 协议。
+<div align="center">
 
-## 功能
+**基于 .NET 10 和 Semantic Kernel 的终端 AI 编程助手**
 
-- 多模型支持 - 配置多个 AI Provider（OpenAI、Azure、Anthropic 等）
-- 自动工具调用 - AI 自动执行文件操作、Shell 命令等
-- MCP 协议 - 支持 Model Context Protocol 扩展工具
-- Markdown 渲染 - 代码高亮、列表、标题等
-- ESC 取消 - 随时按 ESC 终止正在执行的任务
+支持工具调用、MCP 协议和多模型切换
 
-## 内置工具
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
+[![Semantic Kernel](https://img.shields.io/badge/Semantic%20Kernel-1.68.0-blue)](https://github.com/microsoft/semantic-kernel)
 
-**文件操作**
-- ReadFile / WriteFile / AppendToFile - 读写文件
-- ReplaceInFile - 替换文件内容
-- CreateDirectory / Delete / Move / Copy - 目录和文件管理
-- ListDirectory / SearchFiles / Grep - 搜索和浏览
-- GetInfo - 获取文件详细信息
+[English](#) | 简体中文
 
-**系统操作**
-- ExecuteCommand - 执行 Shell 命令（dotnet, npm, git 等）
-- GetSystemInfo / GetTime / GetNetworkInfo - 系统信息
+</div>
 
-## 快速开始
+---
+
+## ✨ 功能特性
+
+- 🤖 **多模型支持** - 支持配置多个 AI Provider（OpenAI、Azure OpenAI、Anthropic Claude 等）
+- 🛠️ **自动工具调用** - AI 可自动执行文件操作、Shell 命令等系统操作
+- 🔌 **MCP 协议支持** - 完整支持 Model Context Protocol，轻松扩展工具能力
+- 🎨 **Markdown 渲染** - 优雅的代码高亮、列表、标题等格式化输出
+- ⚡ **实时取消** - 按 ESC 键可随时终止正在执行的任务
+- 📦 **NuGet 全局工具** - 一键安装，全局可用
+
+---
+
+## 🚀 快速开始
+
+### 安装方式一：作为全局工具安装（推荐）
 
 ```bash
-# 克隆并编译
-git clone <repo-url>
-cd Cade
-dotnet build
+# 从 NuGet 安装
+dotnet tool install --global Cade
 
 # 运行
+cade
+```
+
+### 安装方式二：从源码编译
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/hopesy/Cade.git
+cd Cade
+
+# 2. 还原依赖
+dotnet restore
+
+# 3. 编译项目
+dotnet build
+
+# 4. 运行
 dotnet run --project Cade
 ```
 
-## 配置
+---
 
-首次运行会在 `~/.cade/settings.json` 创建配置文件：
+## 🔧 配置
+
+### 初始配置
+
+首次运行时，Cade 会在 `~/.cade/settings.json` 创建默认配置文件。
+
+**配置文件位置**：
+- Windows: `C:\Users\<用户名>\.cade\settings.json`
+- Linux/macOS: `~/.cade/settings.json`
+
+### 配置示例
 
 ```json
 {
-  "mcpServers": {},
   "providers": {
-    "default": {
+    "openai-gpt4": {
       "type": "openai",
-      "apiKey": "your-api-key",
-      "models": ["gpt-4o"]
+      "apiKey": "sk-xxxxxx",
+      "endpoint": "https://api.openai.com/v1",
+      "models": ["gpt-4o", "gpt-4o-mini"]
+    },
+    "azure-openai": {
+      "type": "azure",
+      "apiKey": "your-azure-key",
+      "endpoint": "https://your-resource.openai.azure.com",
+      "models": ["gpt-4"]
+    },
+    "anthropic-claude": {
+      "type": "anthropic",
+      "apiKey": "sk-ant-xxxx",
+      "models": ["claude-3-5-sonnet-20241022"]
+    }
+  },
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\MyProjects"],
+      "env": {}
+    },
+    "git": {
+      "command": "uvx",
+      "args": ["mcp-server-git"],
+      "env": {}
     }
   }
 }
 ```
 
-## 使用
+### 配置说明
+
+#### Provider 配置
+
+- **type**: 提供商类型 (`openai`, `azure`, `anthropic`)
+- **apiKey**: API 密钥
+- **endpoint**: API 端点（可选，默认使用官方端点）
+- **models**: 支持的模型列表
+
+#### MCP Server 配置
+
+- **command**: 启动 MCP Server 的命令
+- **args**: 命令行参数
+- **env**: 环境变量（可选）
+
+---
+
+## 📖 使用指南
+
+### 基本使用
+
+启动 Cade 后，直接输入你的问题或指令：
 
 ```
 >> 帮我创建一个 .NET 控制台项目
->> 读取 Program.cs 文件
->> 在当前目录搜索所有 .cs 文件
+
+>> 读取 Program.cs 文件并解释它的作用
+
+>> 在当前目录搜索所有包含 "TODO" 的 .cs 文件
+
+>> 执行 dotnet build 命令并分析输出结果
 ```
 
-**命令**
-- `/model` - 切换模型
-- `/help` - 帮助
-- `/exit` - 退出
+### 内置命令
 
-**快捷键**
-- `ESC` - 取消当前任务
+- `/model` - 切换当前使用的 AI 模型
+- `/help` - 显示帮助信息
+- `/exit` - 退出程序
+- `/clear` - 清空对话历史
 
-## 技术栈
+### 快捷键
 
-- .NET 10 / C# 13
-- Microsoft.SemanticKernel - AI 编排
-- Spectre.Console - 终端 UI
-- CommunityToolkit.Mvvm - MVVM
-- Serilog - 日志
+- **ESC** - 取消当前正在执行的 AI 任务
+- **Ctrl+C** - 退出程序
 
-## 项目结构
+---
+
+## 🛠️ 内置工具
+
+Cade 提供了丰富的内置工具，AI 可以自动调用这些工具完成任务：
+
+### 📁 文件操作
+
+| 工具 | 说明 |
+|------|------|
+| `ReadFile` | 读取文件内容 |
+| `WriteFile` | 写入文件（覆盖） |
+| `AppendToFile` | 追加内容到文件 |
+| `ReplaceInFile` | 替换文件中的内容 |
+| `CreateDirectory` | 创建目录 |
+| `Delete` | 删除文件或目录 |
+| `Move` | 移动/重命名文件或目录 |
+| `Copy` | 复制文件或目录 |
+| `ListDirectory` | 列出目录内容 |
+| `SearchFiles` | 搜索文件 |
+| `Grep` | 在文件中搜索文本 |
+| `GetInfo` | 获取文件/目录详细信息 |
+
+### 💻 系统操作
+
+| 工具 | 说明 |
+|------|------|
+| `ExecuteCommand` | 执行 Shell 命令 (如 `dotnet`, `npm`, `git` 等) |
+| `GetSystemInfo` | 获取系统信息 |
+| `GetTime` | 获取当前时间 |
+| `GetNetworkInfo` | 获取网络信息 |
+
+---
+
+## 🔌 MCP 协议
+
+Cade 完整支持 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)，可以轻松集成第三方工具服务器。
+
+### 已测试的 MCP Servers
+
+- **@modelcontextprotocol/server-filesystem** - 文件系统访问
+- **@modelcontextprotocol/server-git** - Git 操作
+- **@modelcontextprotocol/server-sqlite** - SQLite 数据库
+- **@modelcontextprotocol/server-brave-search** - Brave 搜索
+
+### 添加 MCP Server
+
+在 `settings.json` 中添加配置即可：
+
+```json
+{
+  "mcpServers": {
+    "your-server-name": {
+      "command": "node",
+      "args": ["path/to/server.js"],
+      "env": {
+        "API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+---
+
+## 🏗️ 项目结构
 
 ```
-Cade/           # 主程序
-Cade.Tool/      # 内置插件
-Cade.Provider/  # AI Provider 和 MCP 支持
+Cade/
+├── Cade/              # 主程序 - 终端 UI、ViewModel、服务编排
+│   ├── Services/      # 核心服务 (UI、AI 服务等)
+│   ├── ViewModels/    # MVVM ViewModel
+│   ├── Filters/       # 过滤器和中间件
+│   └── Program.cs     # 程序入口 (Generic Host)
+│
+├── Cade.Provider/     # AI Provider 和 MCP 支持
+│   ├── Services/      # Provider 服务 (OpenAI、Azure、Anthropic)
+│   ├── Mcp/           # MCP 协议实现
+│   ├── Models/        # 配置模型
+│   └── settings.json  # 默认配置文件
+│
+├── Cade.Tool/         # 内置工具插件
+│   └── Plugins/       # 文件系统、系统操作等插件
+│
+└── README.md          # 本文件
 ```
 
-## License
+---
 
-MIT
+## 🧰 技术栈
+
+- **运行时**: [.NET 10](https://dotnet.microsoft.com/) / C# 13
+- **AI 编排**: [Microsoft Semantic Kernel 1.68.0](https://github.com/microsoft/semantic-kernel)
+- **终端 UI**: [Spectre.Console](https://spectreconsole.net/)
+- **MVVM 框架**: [CommunityToolkit.Mvvm](https://learn.microsoft.com/dotnet/communitytoolkit/mvvm/)
+- **依赖注入**: [Microsoft.Extensions.Hosting](https://learn.microsoft.com/dotnet/core/extensions/generic-host)
+- **日志**: [Serilog](https://serilog.net/)
+- **MCP 协议**: [ModelContextProtocol](https://modelcontextprotocol.io/)
+
+---
+
+## 📝 开发指南
+
+### 前置要求
+
+- .NET 10 SDK 或更高版本
+- （可选）Node.js 18+ （用于运行 MCP Servers）
+
+### 调试运行
+
+```bash
+# 清理构建
+dotnet clean
+
+# 还原依赖
+dotnet restore
+
+# 编译
+dotnet build
+
+# 运行（带日志输出）
+dotnet run --project Cade
+```
+
+### 添加新的工具插件
+
+1. 在 `Cade.Tool/Plugins/` 目录下创建新的插件类
+2. 使用 `[KernelFunction]` 特性标记工具方法
+3. 在 `Program.cs` 中注册插件
+
+**示例**：
+
+```csharp
+public class MyCustomPlugin
+{
+    [KernelFunction]
+    [Description("自定义工具的描述")]
+    public async Task<string> MyCustomTool(
+        [Description("参数说明")] string parameter)
+    {
+        // 工具逻辑
+        return "结果";
+    }
+}
+```
+
+```csharp
+// 在 Program.cs 中注册
+builder.Services.AddSingleton<MyCustomPlugin>();
+```
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+### 贡献流程
+
+1. Fork 本仓库
+2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交你的修改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启一个 Pull Request
+
+---
+
+## 📄 许可证
+
+本项目采用 MIT 许可证。详见 [LICENSE.txt](LICENSE.txt) 文件。
+
+---
+
+## 🙏 致谢
+
+- [Microsoft Semantic Kernel](https://github.com/microsoft/semantic-kernel) - 强大的 AI 编排框架
+- [Spectre.Console](https://spectreconsole.net/) - 优雅的终端 UI 库
+- [Model Context Protocol](https://modelcontextprotocol.io/) - 统一的工具协议标准
+
+---
+
+## 📧 联系方式
+
+- 作者: hopesy
+- 项目链接: [https://github.com/hopesy/Cade](https://github.com/hopesy/Cade)
+- 问题反馈: [GitHub Issues](https://github.com/hopesy/Cade/issues)
+
+---
+
+<div align="center">
+
+**如果觉得这个项目有帮助，请给一个 ⭐ Star！**
+
+Made with ❤️ by hopesy
+
+</div>
