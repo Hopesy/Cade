@@ -5,7 +5,23 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- NuGet Package -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>cade</ToolCommandName>
+    <PackageId>Cade</PackageId>
+    <Authors>hopesy</Authors>
+    <Description>终端 AI 编程助手，支持工具调用和 MCP 协议</Description>
+    <PackageProjectUrl>https://github.com/hopesy/Cade</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/hopesy/Cade</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>ai;cli;assistant;semantic-kernel;mcp</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
@@ -37,8 +53,8 @@
       <CadeUserDir>$([System.Environment]::GetFolderPath(SpecialFolder.UserProfile))\.cade</CadeUserDir>
     </PropertyGroup>
     <MakeDir Directories="$(CadeUserDir)" Condition="!Exists('$(CadeUserDir)')" />
-    <Copy SourceFiles="..\Cade.Provider\settings.json" 
-          DestinationFiles="$(CadeUserDir)\settings.json" 
+    <Copy SourceFiles="..\Cade.Provider\settings.json"
+          DestinationFiles="$(CadeUserDir)\settings.json"
           Condition="!Exists('$(CadeUserDir)\settings.json')" />
   </Target>
 

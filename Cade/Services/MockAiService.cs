@@ -22,6 +22,11 @@ public class MockAiService : IAiService
         return await SimulateAgentLoopAsync(input);
     }
 
+    public async Task<string> GetResponseAsync(string input, string modelId, CancellationToken cancellationToken)
+    {
+        return await SimulateAgentLoopAsync(input);
+    }
+
     public async IAsyncEnumerable<string> GetStreamingResponseAsync(
         string input, 
         string modelId,

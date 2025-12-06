@@ -17,6 +17,10 @@ public class CadeHostedService : BackgroundService
     private readonly IProviderService _providerService;
     private readonly IConfiguration _configuration;
     private readonly IAiService _aiService;
+    
+    // 用于取消当前 AI 任务
+    private CancellationTokenSource? _currentTaskCts;
+    private readonly object _ctsLock = new();
 
     public CadeHostedService(
         IUserInterface ui,
@@ -95,6 +99,14 @@ public class CadeHostedService : BackgroundService
             if (_ui.KeyAvailable)
             {
                 var key = Console.ReadKey(true);
+                
+                // ESC 键取消当前任务
+                if (key.Key == ConsoleKey.Escape)
+                {
+                    CancelCurrentTask();
+                    continue;
+                }
+                
                 var input = _ui.HandleKeyPress(key);
 
                 if (input != null)
@@ -107,7 +119,7 @@ public class CadeHostedService : BackgroundService
                     {
                         // 同步设置处理状态，确保用户消息已渲染后再清除底部区域
                         _ui.SetProcessing(true, "正在思考...");
-                        // 后台处理 AI 请求
+                        // 后台处理 AI 请求（带取消支持）
                         _ = Task.Run(() => ProcessAiInputAsync(input));
                     }
                 }
@@ -121,18 +133,44 @@ public class CadeHostedService : BackgroundService
             await Task.Delay(10, stoppingToken);
         }
     }
+    
+    private void CancelCurrentTask()
+    {
+        lock (_ctsLock)
+        {
+            if (_currentTaskCts != null && !_currentTaskCts.IsCancellationRequested)
+            {
+                _currentTaskCts.Cancel();
+                _ui.SetProcessing(false);
+                _ui.ShowResponse("[yellow]任务已取消[/]", "⚠️ 已取消");
+            }
+        }
+    }
 
     private async Task ProcessAiInputAsync(string input)
     {
         if (string.IsNullOrWhiteSpace(input)) return;
+
+        // 创建新的取消令牌
+        CancellationTokenSource cts;
+        lock (_ctsLock)
+        {
+            _currentTaskCts?.Dispose();
+            _currentTaskCts = new CancellationTokenSource();
+            cts = _currentTaskCts;
+        }
 
         try
         {
             // SetProcessing 已在主循环中同步调用，这里不再重复调用
             _viewModel.CurrentInput = input;
 
-            // 等待 AI 回复（此时思考动画在底部运行）
-            await _viewModel.SubmitCommand.ExecuteAsync(null);
+            // 等待 AI 回复（此时思考动画在底部运行），传入取消令牌
+            await _viewModel.SubmitCommandWithCancellation(cts.Token);
+
+            // 检查是否被取消
+            if (cts.Token.IsCancellationRequested)
+                return;
 
             // 收到回复后，停止思考动画
             _ui.SetProcessing(false);
@@ -142,13 +180,23 @@ public class CadeHostedService : BackgroundService
             var responseBody = RemoveFirstLine(_viewModel.LastResponse);
             _ui.ShowResponse(responseBody, summary);
         }
+        catch (OperationCanceledException)
+        {
+            // 任务被取消，不做任何处理（CancelCurrentTask 已处理 UI）
+        }
         catch (Exception ex)
         {
-            _ui.ShowError(ex.Message);
+            if (!cts.Token.IsCancellationRequested)
+                _ui.ShowError(ex.Message);
         }
         finally
         {
             _ui.SetProcessing(false);
+            lock (_ctsLock)
+            {
+                if (_currentTaskCts == cts)
+                    _currentTaskCts = null;
+            }
         }
     }
 

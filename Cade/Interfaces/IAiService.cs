@@ -24,6 +24,11 @@ public interface IAiService
     Task<string> GetResponseAsync(string input, string modelId);
 
     /// <summary>
+    /// 获取 AI 响应 (支持取消)
+    /// </summary>
+    Task<string> GetResponseAsync(string input, string modelId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// 流式获取 AI 响应
     /// </summary>
     IAsyncEnumerable<string> GetStreamingResponseAsync(string input, string modelId, CancellationToken cancellationToken = default);

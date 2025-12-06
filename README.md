@@ -1,329 +1,89 @@
-# Cade Code
+# Cade
 
-一个基于 .NET 的智能 AI 助手 CLI 工具，支持工具调用、Markdown 渲染和优雅的交互动画。
+基于 .NET 10 和 Semantic Kernel 的终端 AI 编程助手，支持工具调用和 MCP 协议。
 
-## ✨ 功能特性
+## 功能
 
-### 🤖 AI 助手
-- **多模型支持** - 支持配置多个 AI Provider 和模型
-- **工具调用** - AI 可以自动调用系统工具（读取文件、获取时间、网络信息等）
-- **上下文对话** - 保持对话上下文，智能理解用户意图
+- 多模型支持 - 配置多个 AI Provider（OpenAI、Azure、Anthropic 等）
+- 自动工具调用 - AI 自动执行文件操作、Shell 命令等
+- MCP 协议 - 支持 Model Context Protocol 扩展工具
+- Markdown 渲染 - 代码高亮、列表、标题等
+- ESC 取消 - 随时按 ESC 终止正在执行的任务
 
-### 🎨 优雅的 UI
-- **Gemini 风格动画** - 流畅的脉动加载效果
-  - 思考动画：旋转进度条
-  - 回复动画：竖向点的呼吸效果（⋮ → : → · → 空）
-- **Markdown 渲染** - 完整支持 Markdown 格式
-  - 代码块：带边框的 Panel 显示，支持语言标签
-  - 行内代码：黄色高亮
-  - 标题、列表、粗体、斜体等
-- **无光标闪烁** - 动画期间自动隐藏光标
+## 内置工具
 
-### 🔧 工具系统
-内置多个实用工具，AI 可以自动调用：
-- **ReadFileTool** - 读取文件内容
-- **WriteFileTool** - 写入文件
-- **GetTimeTool** - 获取系统时间
-- **GetNetworkInfoTool** - 获取网络信息
-- **ListDirectoryTool** - 列出目录内容
+**文件操作**
+- ReadFile / WriteFile / AppendToFile - 读写文件
+- ReplaceInFile - 替换文件内容
+- CreateDirectory / Delete / Move / Copy - 目录和文件管理
+- ListDirectory / SearchFiles / Grep - 搜索和浏览
+- GetInfo - 获取文件详细信息
 
-### 🎯 交互体验
-- **实时输入** - 非阻塞式输入处理
-- **工具日志** - 清晰展示工具调用过程
-- **错误处理** - 友好的错误提示
-- **命令支持** - `/help`, `/model`, `/exit` 等命令
+**系统操作**
+- ExecuteCommand - 执行 Shell 命令（dotnet, npm, git 等）
+- GetSystemInfo / GetTime / GetNetworkInfo - 系统信息
 
-## 🏗️ 项目结构
-
-```
-Cade/
-├── Cade/                      # 主项目（CLI 应用）
-│   ├── Interfaces/            # 接口定义
-│   │   ├── IAiService.cs      # AI 服务接口
-│   │   └── IUserInterface.cs  # UI 接口
-│   ├── Services/              # 服务实现
-│   │   ├── ConsoleUserInterface.cs   # 控制台 UI
-│   │   ├── ProductionAiService.cs    # AI 服务实现
-│   │   └── MarkdownRenderer.cs       # Markdown 渲染器
-│   ├── ViewModels/            # MVVM ViewModel
-│   │   └── MainViewModel.cs
-│   ├── CadeHostedService.cs   # 主程序入口
-│   └── Program.cs             # 启动配置
-│
-├── Cade.Tool/                 # 工具系统
-│   ├── ITool.cs               # 工具接口
-│   ├── ToolBase.cs            # 工具基类
-│   ├── ToolManager.cs         # 工具管理器
-│   └── Tools/                 # 具体工具实现
-│       ├── ReadFileTool.cs
-│       ├── WriteFileTool.cs
-│       ├── GetTimeTool.cs
-│       ├── GetNetworkInfoTool.cs
-│       └── ListDirectoryTool.cs
-│
-└── Cade.Provider/             # AI Provider 抽象层
-    └── Services/              # Provider 服务
-```
-
-## 🚀 技术栈
-
-- **.NET 10** - 核心框架
-- **C# 12** - 编程语言
-- **Spectre.Console** - 终端 UI 框架
-- **CommunityToolkit.Mvvm** - MVVM 框架
-- **Microsoft.Extensions.Hosting** - Generic Host
-- **Microsoft.Extensions.DependencyInjection** - 依赖注入
-- **Microsoft.Extensions.AI** - AI 抽象层
-
-## 📦 快速开始
-
-### 前置要求
-
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
-
-### 安装
+## 快速开始
 
 ```bash
-# 克隆仓库
-git clone <repository-url>
+# 克隆并编译
+git clone <repo-url>
 cd Cade
-
-# 还原依赖
-dotnet restore
-
-# 编译项目
 dotnet build
+
+# 运行
+dotnet run --project Cade
 ```
 
-### 运行
+## 配置
 
-```bash
-dotnet run --project Cade/Cade.csproj
-```
-
-## 🎮 使用指南
-
-### 启动界面
-
-```
-  ____          _         ____          _
- / ___|__ _  __| | ___   / ___|___   __| | ___
-| |   / _` |/ _` |/ _ \ | |   / _ \ / _` |/ _ \
-| |__| (_| | (_| |  __/ | |__| (_) | (_| |  __/
- \____\__,_|\__,_|\___|  \____\___/ \__,_|\___|
-
-Tips for getting started:
-  1. Ask questions, edit files, or run commands.
-  2. Be specific for the best results.
-  3. /help for more information.
-
->>
-```
-
-### 基本使用
-
-**提问示例**：
-```
->> 帮我读取当前目录的文件列表
-```
-
-**AI 回复流程**：
-1. 底部显示思考动画：`[[===]] 正在思考...`
-2. AI 调用工具（如果需要）：
-   ```
-   ┏━━━━━━━━━━━━━━━━━━━━━━┓
-   ┃ 🔨 list_directory    ┃
-   ┃ 目录: C:\Projects    ┃
-   ┃ 【文件】:            ┃
-   ┃   📄 README.md       ┃
-   ┗━━━━━━━━━━━━━━━━━━━━━━┛
-   ```
-3. 显示回复动画：`⋮  正在生成回复...`（脉动效果）
-4. 显示完整回复（Markdown 格式）
-
-### 可用命令
-
-- `/help` - 显示帮助信息
-- `/model` - 切换 AI 模型
-- `/exit` 或 `/quit` - 退出程序
-
-### 工具调用示例
-
-AI 会根据你的问题自动调用相应的工具：
-
-**读取文件**：
-```
->> 帮我读取 README.md 文件
-```
-AI 自动调用 `read_file` 工具
-
-**获取时间**：
-```
->> 现在几点了？
-```
-AI 自动调用 `get_time` 工具
-
-**列出目录**：
-```
->> 当前目录有哪些文件？
-```
-AI 自动调用 `list_directory` 工具
-
-## 🎨 动画效果详解
-
-### 思考动画
-位置：底部状态栏
-效果：旋转进度条
-```
-[[   ]] → [[=  ]] → [[== ]] → [[===]] → [[ ==]] → [[  =]]
-```
-频率：100ms/帧
-
-### 回复动画（Gemini 风格）
-位置：历史消息区域
-效果：竖向点的脉动呼吸
-```
- 空  → · → : → ⋮ → : → · → 空 （循环）
-```
-频率：150ms/帧
-持续：1.5 秒
-
-### 代码渲染
-
-**代码块**：
-```
-╭─ csharp ─────────────────────╮
-│ var tool = new ReadFileTool();│
-│ var result = await tool...   │
-╰──────────────────────────────╯
-```
-
-**行内代码**：
-使用 `dotnet build` 命令（黄色高亮背景）
-
-## 🔧 开发指南
-
-### 添加新工具
-
-1. 在 `Cade.Tool/Tools/` 创建新工具类：
-
-```csharp
-public class MyTool : ToolBase
-{
-    public override string Name => "my_tool";
-    public override string Description => "我的工具描述";
-
-    public override Task<ToolResult> ExecuteAsync(string parameters)
-    {
-        return SafeExecuteAsync(async () =>
-        {
-            // 工具逻辑
-            return ToolResult.CreateSuccess("执行成功");
-        });
-    }
-}
-```
-
-2. 在 `ToolExtensions.cs` 中注册：
-
-```csharp
-public static void RegisterDefaultTools(this ToolManager manager)
-{
-    manager.RegisterTool(new MyTool());
-    // ... 其他工具
-}
-```
-
-### 配置 AI Provider
-
-编辑 `appsettings.json`：
+首次运行会在 `~/.cade/settings.json` 创建配置文件：
 
 ```json
 {
-  "AppSettings": {
-    "CurrentProviderConfig": "default",
-    "CurrentModelId": "your-model-id",
-    "Theme": "Dark"
+  "mcpServers": {},
+  "providers": {
+    "default": {
+      "type": "openai",
+      "apiKey": "your-api-key",
+      "models": ["gpt-4o"]
+    }
   }
 }
 ```
 
-### 项目编译
-
-```bash
-# 清理
-dotnet clean
-
-# 还原依赖
-dotnet restore
-
-# 编译
-dotnet build
-
-# 运行
-dotnet run --project Cade/Cade.csproj
-```
-
-## 📊 工具调用流程
+## 使用
 
 ```
-用户提问
-  ↓
-AI 分析（判断是否需要工具）
-  ↓
-┌─────────────────┐
-│ 需要工具？      │
-└─────────────────┘
-  ├─ Yes → 调用工具 → 获取结果 → AI 基于结果生成回复
-  └─ No  → 直接生成回复
-  ↓
-显示完整回复
+>> 帮我创建一个 .NET 控制台项目
+>> 读取 Program.cs 文件
+>> 在当前目录搜索所有 .cs 文件
 ```
 
-AI 最多可以进行 5 轮工具调用，确保复杂任务的完成。
+**命令**
+- `/model` - 切换模型
+- `/help` - 帮助
+- `/exit` - 退出
 
-## 🎯 特色功能
+**快捷键**
+- `ESC` - 取消当前任务
 
-### 自动总结提取
-AI 回复时，会自动提取第一句话作为总结，显示在动画头部：
-- 移除 Markdown 标记
-- 提取第一句话
-- 限制 60 个字符
-- 超出显示 "..."
+## 技术栈
 
-### 智能光标管理
-- 动画播放时：自动隐藏光标
-- 等待输入时：显示光标
-- 无闪烁干扰
+- .NET 10 / C# 13
+- Microsoft.SemanticKernel - AI 编排
+- Spectre.Console - 终端 UI
+- CommunityToolkit.Mvvm - MVVM
+- Serilog - 日志
 
-### Markdown 完整支持
-- ✅ 标题（# ## ### ####）
-- ✅ 粗体（**text**）
-- ✅ 斜体（*text*）
-- ✅ 代码块（```code```）
-- ✅ 行内代码（`code`）
-- ✅ 列表（有序/无序）
-- ✅ 链接（[text](url)）
+## 项目结构
 
-## 📚 相关文档
+```
+Cade/           # 主程序
+Cade.Tool/      # 内置插件
+Cade.Provider/  # AI Provider 和 MCP 支持
+```
 
-- [AI 回复动画说明](./AI回复动画说明.md)
-- [代码渲染改进说明](./代码渲染改进说明.md)
+## License
 
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📄 许可证
-
-MIT License
-
-## 🙏 致谢
-
-- [Spectre.Console](https://spectreconsole.net/) - 优秀的终端 UI 框架
-- [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) - MVVM 工具包
-- Gemini - 动画设计灵感来源
-
----
-
-**Enjoy coding with Cade! 🚀**
+MIT

@@ -64,7 +64,12 @@ public class ProductionAiService : IAiService
             """);
     }
 
-    public async Task<string> GetResponseAsync(string input, string modelId)
+    public Task<string> GetResponseAsync(string input, string modelId)
+    {
+        return GetResponseAsync(input, modelId, CancellationToken.None);
+    }
+
+    public async Task<string> GetResponseAsync(string input, string modelId, CancellationToken cancellationToken)
     {
         var kernel = _providerService.GetKernel();
         if (kernel == null)
@@ -85,11 +90,16 @@ public class ProductionAiService : IAiService
         try
         {
             _logger.LogInformation("开始获取AI响应...");
-            var response = await chatService.GetChatMessageContentAsync(_chatHistory, settings, kernel);
+            var response = await chatService.GetChatMessageContentAsync(_chatHistory, settings, kernel, cancellationToken);
             var result = response.Content ?? string.Empty;
             _logger.LogInformation("AI响应完成，内容长度: {Length}", result.Length);
             _chatHistory.AddAssistantMessage(result);
             return result;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("AI请求被用户取消");
+            throw;
         }
         catch (Exception ex)
         {

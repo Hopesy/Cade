@@ -46,4 +46,22 @@ public partial class MainViewModel : ObservableObject
             IsBusy = false;
         }
     }
+
+    /// <summary>
+    /// 支持取消的提交方法
+    /// </summary>
+    public async Task SubmitCommandWithCancellation(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(CurrentInput)) return;
+
+        IsBusy = true;
+        try
+        {
+            LastResponse = await _aiService.GetResponseAsync(CurrentInput, CurrentModelId, cancellationToken);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
 }
