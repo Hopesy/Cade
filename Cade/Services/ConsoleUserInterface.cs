@@ -477,8 +477,13 @@ public class ConsoleUserInterface : IUserInterface
             Console.Write(clearLine);
             Console.SetCursorPosition(0, Console.CursorTop);
             
-            // 构建状态栏内容
+            // 构建状态栏内容，用户目录替换为 ~
             string pathDisplay = string.IsNullOrEmpty(_currentPath) ? "" : _currentPath;
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(userProfile) && pathDisplay.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase))
+            {
+                pathDisplay = "~" + pathDisplay.Substring(userProfile.Length);
+            }
             
             // 模型ID格式: uuid_modelname，只显示下划线后面的部分
             string modelDisplay = "";
