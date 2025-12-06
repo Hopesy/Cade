@@ -43,11 +43,13 @@ public class ToolCallFilter : IFunctionInvocationFilter
         finally
         {
             stopwatch.Stop();
-            _ui.SetProcessing(false);
 
             // 使用 SafeRender 确保线程安全
             var elapsed = stopwatch.Elapsed.TotalSeconds;
             var resultValue = context.Result?.GetValue<object>()?.ToString() ?? "";
+
+            // 先停止当前状态
+            _ui.SetProcessing(false);
 
             _ui.SafeRender(() =>
             {
@@ -72,6 +74,9 @@ public class ToolCallFilter : IFunctionInvocationFilter
                     }
                 }
             });
+
+            // 工具执行完成后，显示"正在思考"状态，让用户知道 AI 还在处理
+            _ui.SetProcessing(true, "正在思考...");
         }
     }
 
