@@ -51,10 +51,10 @@ public class SystemPlugin
         return sb.ToString();
     }
 
-    [KernelFunction, Description("执行系统命令（30秒超时）")]
+    [KernelFunction, Description("执行Shell命令，如: dotnet new, npm init, git clone, pip install, mkdir, dir, ls 等系统命令（30秒超时）")]
     public async Task<string> ExecuteCommand(
-        [Description("要执行的命令")] string command,
-        [Description("工作目录")] string? workingDirectory = null)
+        [Description("要执行的Shell命令，如: dotnet new console -n MyApp, npm install, git status")] string command,
+        [Description("工作目录，默认当前目录")] string? workingDirectory = null)
     {
         var psi = new ProcessStartInfo
         {

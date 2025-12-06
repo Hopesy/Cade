@@ -110,6 +110,168 @@ public class FileSystemPlugin
         return count == 0 ? "未找到匹配内容" : $"找到 {count} 处匹配:\n{sb}";
     }
 
+    [KernelFunction, Description("创建目录")]
+    public string CreateDirectory([Description("目录路径")] string path)
+    {
+        if (Directory.Exists(path))
+            return $"目录已存在: {path}";
+
+        Directory.CreateDirectory(path);
+        return $"成功创建目录: {path}";
+    }
+
+    [KernelFunction, Description("删除文件或目录")]
+    public string Delete(
+        [Description("文件或目录路径")] string path,
+        [Description("如果是目录，是否递归删除")] bool recursive = false)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+            return $"成功删除文件: {path}";
+        }
+
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive);
+            return $"成功删除目录: {path}";
+        }
+
+        return $"错误: 路径不存在 - {path}";
+    }
+
+    [KernelFunction, Description("移动或重命名文件/目录")]
+    public string Move(
+        [Description("源路径")] string source,
+        [Description("目标路径")] string destination)
+    {
+        if (File.Exists(source))
+        {
+            var destDir = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                Directory.CreateDirectory(destDir);
+
+            File.Move(source, destination);
+            return $"成功移动文件: {source} -> {destination}";
+        }
+
+        if (Directory.Exists(source))
+        {
+            Directory.Move(source, destination);
+            return $"成功移动目录: {source} -> {destination}";
+        }
+
+        return $"错误: 源路径不存在 - {source}";
+    }
+
+    [KernelFunction, Description("复制文件或目录")]
+    public string Copy(
+        [Description("源路径")] string source,
+        [Description("目标路径")] string destination,
+        [Description("是否覆盖已存在的文件")] bool overwrite = false)
+    {
+        if (File.Exists(source))
+        {
+            var destDir = Path.GetDirectoryName(destination);
+            if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+                Directory.CreateDirectory(destDir);
+
+            File.Copy(source, destination, overwrite);
+            return $"成功复制文件: {source} -> {destination}";
+        }
+
+        if (Directory.Exists(source))
+        {
+            CopyDirectory(source, destination, overwrite);
+            return $"成功复制目录: {source} -> {destination}";
+        }
+
+        return $"错误: 源路径不存在 - {source}";
+    }
+
+    [KernelFunction, Description("获取文件或目录的详细信息")]
+    public string GetInfo([Description("文件或目录路径")] string path)
+    {
+        var sb = new StringBuilder();
+
+        if (File.Exists(path))
+        {
+            var info = new FileInfo(path);
+            sb.AppendLine($"类型: 文件");
+            sb.AppendLine($"路径: {info.FullName}");
+            sb.AppendLine($"大小: {FormatSize(info.Length)}");
+            sb.AppendLine($"创建时间: {info.CreationTime:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"修改时间: {info.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"只读: {info.IsReadOnly}");
+            return sb.ToString();
+        }
+
+        if (Directory.Exists(path))
+        {
+            var info = new DirectoryInfo(path);
+            var files = info.GetFiles("*", SearchOption.AllDirectories);
+            var dirs = info.GetDirectories("*", SearchOption.AllDirectories);
+            var totalSize = files.Sum(f => f.Length);
+
+            sb.AppendLine($"类型: 目录");
+            sb.AppendLine($"路径: {info.FullName}");
+            sb.AppendLine($"文件数: {files.Length}");
+            sb.AppendLine($"子目录数: {dirs.Length}");
+            sb.AppendLine($"总大小: {FormatSize(totalSize)}");
+            sb.AppendLine($"创建时间: {info.CreationTime:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"修改时间: {info.LastWriteTime:yyyy-MM-dd HH:mm:ss}");
+            return sb.ToString();
+        }
+
+        return $"错误: 路径不存在 - {path}";
+    }
+
+    [KernelFunction, Description("在文件中替换文本内容")]
+    public async Task<string> ReplaceInFile(
+        [Description("文件路径")] string path,
+        [Description("要查找的文本")] string search,
+        [Description("替换为的文本")] string replace)
+    {
+        if (!File.Exists(path))
+            return $"错误: 文件不存在 - {path}";
+
+        var content = await File.ReadAllTextAsync(path);
+        var count = Regex.Matches(content, Regex.Escape(search)).Count;
+
+        if (count == 0)
+            return $"未找到匹配的文本: {search}";
+
+        var newContent = content.Replace(search, replace);
+        await File.WriteAllTextAsync(path, newContent);
+
+        return $"成功替换 {count} 处匹配，文件: {path}";
+    }
+
+    [KernelFunction, Description("追加内容到文件末尾")]
+    public async Task<string> AppendToFile(
+        [Description("文件路径")] string path,
+        [Description("要追加的内容")] string content)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            Directory.CreateDirectory(directory);
+
+        await File.AppendAllTextAsync(path, content);
+        return $"成功追加内容到文件: {path}";
+    }
+
+    private static void CopyDirectory(string source, string destination, bool overwrite)
+    {
+        var dir = new DirectoryInfo(source);
+        Directory.CreateDirectory(destination);
+
+        foreach (var file in dir.GetFiles())
+            file.CopyTo(Path.Combine(destination, file.Name), overwrite);
+
+        foreach (var subDir in dir.GetDirectories())
+            CopyDirectory(subDir.FullName, Path.Combine(destination, subDir.Name), overwrite);
+    }
+
     private static string FormatSize(long bytes)
     {
         string[] sizes = ["B", "KB", "MB", "GB"];
