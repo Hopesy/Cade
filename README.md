@@ -22,6 +22,8 @@
 - 🎨 **Markdown 渲染** - 优雅的代码高亮、列表、标题等格式化输出
 - ⚡ **实时取消** - 按 ESC 键可随时终止正在执行的任务
 - 💭 **思考模式** - Tab 键快速切换，支持思维链模型
+- 💾 **对话缓存** - 按目录缓存对话，`/continue` 一键恢复上次会话
+- 🔄 **自动更新检查** - 启动时检查新版本，提示更新命令
 - 📦 **NuGet 全局工具** - 一键安装，全局可用
 
 ---
@@ -150,6 +152,8 @@ cade
 |------|------|
 | `/model` | 切换当前使用的 AI 模型 |
 | `/think` | 切换思考模式 (Tab 快捷键) |
+| `/continue` | 恢复上次对话 (基于当前目录) |
+| `/clear` | 清空当前对话历史 |
 | `/help` | 显示帮助信息 |
 | `/exit` | 退出程序 |
 
@@ -231,7 +235,7 @@ Cade 完整支持 [Model Context Protocol (MCP)](https://modelcontextprotocol.io
 ```
 Cade/
 ├── Cade/              # 主程序 - 终端 UI、ViewModel、服务编排
-│   ├── Services/      # 核心服务 (UI、AI 服务等)
+│   ├── Services/      # 核心服务 (UI、AI 服务、更新检查等)
 │   ├── ViewModels/    # MVVM ViewModel
 │   ├── Filters/       # 过滤器和中间件
 │   └── Program.cs     # 程序入口 (Generic Host)
@@ -242,10 +246,27 @@ Cade/
 │   ├── Models/        # 配置模型
 │   └── settings.json  # 默认配置文件
 │
+├── Cade.Data/         # 数据持久化
+│   ├── Entities/      # 实体 (ChatSession、ChatMessage)
+│   ├── Services/      # 数据服务 (FreeSql + SQLite)
+│   └── Configuration/ # FreeSql 配置
+│
 ├── Cade.Tool/         # 内置工具插件
 │   └── Plugins/       # 文件系统、系统操作等插件
 │
 └── README.md          # 本文件
+```
+
+### 用户数据目录
+
+```
+~/.cade/
+├── settings.json      # 配置文件 (API Key、模型等)
+├── cade.md            # 自定义系统提示词
+├── data/
+│   └── cade.db        # SQLite 数据库 (对话缓存)
+└── logs/
+    └── Cade.log       # 日志文件
 ```
 
 ---
@@ -257,6 +278,7 @@ Cade/
 - **终端 UI**: [Spectre.Console](https://spectreconsole.net/)
 - **MVVM 框架**: [CommunityToolkit.Mvvm](https://learn.microsoft.com/dotnet/communitytoolkit/mvvm/)
 - **依赖注入**: [Microsoft.Extensions.Hosting](https://learn.microsoft.com/dotnet/core/extensions/generic-host)
+- **数据持久化**: [FreeSql](https://freesql.net/) + SQLite
 - **日志**: [Serilog](https://serilog.net/)
 - **MCP 协议**: [ModelContextProtocol](https://modelcontextprotocol.io/)
 
