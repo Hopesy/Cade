@@ -50,35 +50,17 @@ cade
 
 ```json
 {
-  "providers": {
-    "openai-gpt4": {
-      "type": "openai",
-      "apiKey": "sk-xxxxxx",
-      "endpoint": "https://api.openai.com/v1",
-      "models": ["gpt-4o", "gpt-4o-mini"]
-    },
-    "azure-openai": {
-      "type": "azure",
-      "apiKey": "your-azure-key",
-      "endpoint": "https://your-resource.openai.azure.com",
-      "models": ["gpt-4"]
-    },
-    "anthropic-claude": {
-      "type": "anthropic",
-      "apiKey": "sk-ant-xxxx",
-      "models": ["claude-3-5-sonnet-20241022"]
-    }
+  "env": {
+    "CADE_AUTH_TOKEN": "sk-your-api-key",
+    "CADE_BASE_URL": "https://api.openai.com/v1",
+    "CADE_DEFAULT_MODEL": "gpt-4o",
+    "CADE_PROVIDE_TYPE": "OpenAI"
   },
-  "mcpServers": {
+  "McpServers": {
     "filesystem": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\MyProjects"],
-      "env": {}
-    },
-    "git": {
-      "command": "uvx",
-      "args": ["mcp-server-git"],
-      "env": {}
+      "Command": "npx",
+      "Args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\MyProjects"],
+      "Disabled": false
     }
   }
 }
@@ -86,18 +68,38 @@ cade
 
 ### 配置说明
 
-#### Provider 配置
+#### Provider 配置 (env)
 
-- **type**: 提供商类型 (`openai`, `azure`, `anthropic`)
-- **apiKey**: API 密钥
-- **endpoint**: API 端点（可选，默认使用官方端点）
-- **models**: 支持的模型列表
+| 环境变量 | 说明 |
+|---------|------|
+| `CADE_AUTH_TOKEN` | API 密钥 |
+| `CADE_BASE_URL` | API 端点 |
+| `CADE_DEFAULT_MODEL` | 默认模型 |
+| `CADE_PROVIDE_TYPE` | 提供商类型: `OpenAI`, `OpenAICompatible`, `AzureOpenAI` |
+
+**常用配置示例**：
+
+```json
+// OpenAI
+"CADE_BASE_URL": "https://api.openai.com/v1"
+"CADE_PROVIDE_TYPE": "OpenAI"
+
+// DeepSeek
+"CADE_BASE_URL": "https://api.deepseek.com/v1"
+"CADE_PROVIDE_TYPE": "OpenAICompatible"
+
+// Azure OpenAI
+"CADE_BASE_URL": "https://your-resource.openai.azure.com"
+"CADE_PROVIDE_TYPE": "AzureOpenAI"
+```
 
 #### MCP Server 配置
 
-- **command**: 启动 MCP Server 的命令
-- **args**: 命令行参数
-- **env**: 环境变量（可选）
+| 字段 | 说明 |
+|------|------|
+| `Command` | 启动命令 (如 `npx`, `uvx`, `node`) |
+| `Args` | 命令行参数数组 |
+| `Disabled` | 是否禁用 |
 
 ---
 
