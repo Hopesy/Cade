@@ -101,6 +101,30 @@ cade
 | `Args` | 命令行参数数组 |
 | `Disabled` | 是否禁用 |
 
+### 自定义系统提示词
+
+在 `~/.cade/cade.md` 中编写自定义规范，Cade 启动时会自动加载并追加到系统提示词中。
+
+**示例** (`~/.cade/cade.md`)：
+
+```markdown
+## 项目规范
+
+- 使用 .NET 8 和 C# 12
+- 遵循 Clean Architecture 架构
+- 所有公共方法必须有 XML 注释
+- 使用 async/await 处理异步操作
+- 单元测试使用 xUnit + Moq
+
+## 代码风格
+
+- 命名规范：PascalCase 用于类和方法，camelCase 用于局部变量
+- 每个文件只包含一个类
+- 使用 nullable reference types
+```
+
+这样每次创建项目或编写代码时，AI 都会遵循你定义的规范。
+
 ---
 
 ## 📖 使用指南
