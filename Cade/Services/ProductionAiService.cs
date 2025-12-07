@@ -36,7 +36,17 @@ public class ProductionAiService : IAiService
         _fileSystemPlugin = fileSystemPlugin;
         _systemPlugin = systemPlugin;
 
-        _chatHistory.AddSystemMessage("""
+        // 构建系统提示词
+        var systemPrompt = BuildSystemPrompt();
+        _chatHistory.AddSystemMessage(systemPrompt);
+    }
+
+    private static string BuildSystemPrompt()
+    {
+        var sb = new StringBuilder();
+        
+        // 基础系统提示词
+        sb.AppendLine("""
             你是 Cade，一个高级 AI 编程助手。你可以使用以下工具帮助用户：
 
             文件操作：
@@ -62,6 +72,32 @@ public class ProductionAiService : IAiService
             当用户需要创建项目、安装依赖、执行构建等操作时，使用 ExecuteCommand 执行相应的命令。
             回复时简洁明了，优先使用工具完成任务。
             """);
+
+        // 尝试加载用户自定义提示词
+        var customPromptPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".cade",
+            "cade.md");
+
+        if (File.Exists(customPromptPath))
+        {
+            try
+            {
+                var customPrompt = File.ReadAllText(customPromptPath);
+                if (!string.IsNullOrWhiteSpace(customPrompt))
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("--- 用户自定义规范 ---");
+                    sb.AppendLine(customPrompt);
+                }
+            }
+            catch
+            {
+                // 忽略读取错误
+            }
+        }
+
+        return sb.ToString();
     }
 
     public Task<string> GetResponseAsync(string input, string modelId)
