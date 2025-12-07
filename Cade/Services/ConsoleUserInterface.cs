@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using Cade.Models;
 using Cade.Services.Interfaces;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -28,6 +29,10 @@ public class ConsoleUserInterface : IUserInterface
     
     private record HistoryItem(HistoryType Type, string Content, string? Header = null);
     private enum HistoryType { UserMessage, Response, ToolCall, Error }
+
+    // 命令补全状态
+    private CommandDefinition[] _matchedCommands = [];
+    private int _selectedCommandIndex = -1;
     
     public ConsoleUserInterface(ILogger<ConsoleUserInterface> logger)
     {
@@ -213,13 +218,25 @@ public class ConsoleUserInterface : IUserInterface
     {
         lock (_consoleLock)
         {
+            var currentInput = _inputBuffer.ToString();
+            var isCommandMode = currentInput.StartsWith("/");
+
             if (keyInfo.Key == ConsoleKey.Enter)
             {
                 if (_inputBuffer.Length > 0)
                 {
                     string input = _inputBuffer.ToString();
+                    
+                    // 如果在命令补全模式且有选中的命令，使用选中的命令
+                    if (isCommandMode && _selectedCommandIndex >= 0 && _selectedCommandIndex < _matchedCommands.Length)
+                    {
+                        input = _matchedCommands[_selectedCommandIndex].Name;
+                    }
+                    
                     _inputBuffer.Clear();
-                    _cursorPosition = 0; // 重置光标位置
+                    _cursorPosition = 0;
+                    _matchedCommands = [];
+                    _selectedCommandIndex = -1;
 
                     PrintUserMessage(input);
                     RenderBottomArea();
@@ -227,28 +244,61 @@ public class ConsoleUserInterface : IUserInterface
                     return input;
                 }
             }
+            else if (keyInfo.Key == ConsoleKey.Tab)
+            {
+                // Tab 补全：如果有匹配的命令，选择第一个或当前选中的
+                if (isCommandMode && _matchedCommands.Length > 0)
+                {
+                    var idx = _selectedCommandIndex >= 0 ? _selectedCommandIndex : 0;
+                    var cmd = _matchedCommands[idx].Name;
+                    _inputBuffer.Clear();
+                    _inputBuffer.Append(cmd);
+                    _cursorPosition = cmd.Length;
+                    UpdateCommandCompletion();
+                    RenderBottomArea(overwrite: true);
+                }
+            }
+            else if (keyInfo.Key == ConsoleKey.UpArrow)
+            {
+                // 上键：在命令列表中向上选择
+                if (isCommandMode && _matchedCommands.Length > 0)
+                {
+                    _selectedCommandIndex = _selectedCommandIndex <= 0 
+                        ? _matchedCommands.Length - 1 
+                        : _selectedCommandIndex - 1;
+                    RenderBottomArea(overwrite: true);
+                }
+            }
+            else if (keyInfo.Key == ConsoleKey.DownArrow)
+            {
+                // 下键：在命令列表中向下选择
+                if (isCommandMode && _matchedCommands.Length > 0)
+                {
+                    _selectedCommandIndex = (_selectedCommandIndex + 1) % _matchedCommands.Length;
+                    RenderBottomArea(overwrite: true);
+                }
+            }
             else if (keyInfo.Key == ConsoleKey.Backspace)
             {
-                // 在光标位置前删除一个字符
                 if (_cursorPosition > 0 && _inputBuffer.Length > 0)
                 {
                     _inputBuffer.Remove(_cursorPosition - 1, 1);
                     _cursorPosition--;
+                    UpdateCommandCompletion();
                     RenderBottomArea(overwrite: true);
                 }
             }
             else if (keyInfo.Key == ConsoleKey.Delete)
             {
-                // 删除光标位置的字符
                 if (_cursorPosition < _inputBuffer.Length)
                 {
                     _inputBuffer.Remove(_cursorPosition, 1);
+                    UpdateCommandCompletion();
                     RenderBottomArea(overwrite: true);
                 }
             }
             else if (keyInfo.Key == ConsoleKey.LeftArrow)
             {
-                // 向左移动光标
                 if (_cursorPosition > 0)
                 {
                     _cursorPosition--;
@@ -257,7 +307,6 @@ public class ConsoleUserInterface : IUserInterface
             }
             else if (keyInfo.Key == ConsoleKey.RightArrow)
             {
-                // 向右移动光标
                 if (_cursorPosition < _inputBuffer.Length)
                 {
                     _cursorPosition++;
@@ -266,7 +315,6 @@ public class ConsoleUserInterface : IUserInterface
             }
             else if (keyInfo.Key == ConsoleKey.Home)
             {
-                // 移动到行首
                 if (_cursorPosition != 0)
                 {
                     _cursorPosition = 0;
@@ -275,7 +323,6 @@ public class ConsoleUserInterface : IUserInterface
             }
             else if (keyInfo.Key == ConsoleKey.End)
             {
-                // 移动到行尾
                 if (_cursorPosition != _inputBuffer.Length)
                 {
                     _cursorPosition = _inputBuffer.Length;
@@ -284,13 +331,28 @@ public class ConsoleUserInterface : IUserInterface
             }
             else if (!char.IsControl(keyInfo.KeyChar))
             {
-                // 在光标位置插入字符
                 _inputBuffer.Insert(_cursorPosition, keyInfo.KeyChar);
                 _cursorPosition++;
+                UpdateCommandCompletion();
                 RenderBottomArea(overwrite: true);
             }
         }
         return null;
+    }
+
+    private void UpdateCommandCompletion()
+    {
+        var input = _inputBuffer.ToString();
+        if (input.StartsWith("/"))
+        {
+            _matchedCommands = CommandDefinition.Match(input);
+            _selectedCommandIndex = _matchedCommands.Length > 0 ? 0 : -1;
+        }
+        else
+        {
+            _matchedCommands = [];
+            _selectedCommandIndex = -1;
+        }
     }
 
     public void SafeRender(Action action)
@@ -299,16 +361,31 @@ public class ConsoleUserInterface : IUserInterface
         {
             _logger.LogInformation("SafeRender START: _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", _bottomAreaStartLine, Console.CursorTop);
             
-            // 总是尝试清除底部区域
+            // 记录底部区域起始位置，用于后续恢复
+            int savedBottomStart = _bottomAreaStartLine;
+            
+            // 清除底部区域
             ClearBottomArea();
             
-            _logger.LogInformation("SafeRender after ClearBottomArea: CursorTop={CursorTop}", Console.CursorTop);
+            _logger.LogInformation("SafeRender after ClearBottomArea: CursorTop={CursorTop}, savedBottomStart={SavedStart}", Console.CursorTop, savedBottomStart);
             
+            // 执行输出操作
             action();
             
-            _logger.LogInformation("SafeRender after action: CursorTop={CursorTop}", Console.CursorTop);
+            // 确保输出后有换行，避免底部区域覆盖最后一行
+            int afterActionTop = Console.CursorTop;
+            int afterActionLeft = Console.CursorLeft;
             
-            // 直接渲染底部区域，RenderBottomArea 会自动处理空间不足的情况
+            // 如果光标不在行首，说明最后一行没有换行，需要换行
+            if (afterActionLeft > 0)
+            {
+                Console.WriteLine();
+                afterActionTop = Console.CursorTop;
+            }
+            
+            _logger.LogInformation("SafeRender after action: CursorTop={CursorTop}, CursorLeft={CursorLeft}", afterActionTop, afterActionLeft);
+            
+            // 渲染底部区域
             RenderBottomArea();
             
             _logger.LogInformation("SafeRender END: _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", _bottomAreaStartLine, Console.CursorTop);
@@ -370,7 +447,9 @@ public class ConsoleUserInterface : IUserInterface
         _logger.LogInformation("PrintUserMessage #{MsgNum} START: message='{Message}', _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", 
             msgNum, message, _bottomAreaStartLine, Console.CursorTop);
         
-        // 清除底部区域
+        // 清除底部区域并获取正确的写入位置
+        int writePosition = Console.CursorTop;
+        
         if (_bottomAreaStartLine >= 0)
         {
             const int maxTotalLines = 10; // 清除足够多的行
@@ -390,38 +469,41 @@ public class ConsoleUserInterface : IUserInterface
                 }
             }
             
-            // 光标回到起始位置
-            Console.SetCursorPosition(0, startTop);
+            // 写入位置应该是底部区域的起始位置（这是内容区域的结束位置）
+            writePosition = startTop;
             _bottomAreaStartLine = -1;
             
-            _logger.LogInformation("PrintUserMessage #{MsgNum}: After clear, CursorTop={CursorTop}", msgNum, Console.CursorTop);
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: After clear, writePosition={WritePos}", msgNum, writePosition);
             
             Console.Out.Flush();
         }
         else
         {
-            _logger.LogInformation("PrintUserMessage #{MsgNum}: No bottom area to clear, CursorTop={CursorTop}", msgNum, Console.CursorTop);
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: No bottom area to clear, writePosition={WritePos}", msgNum, writePosition);
         }
 
+        // 设置光标到写入位置
+        Console.SetCursorPosition(0, writePosition);
+
         // 确保有足够的空间
-        int currentTop = Console.CursorTop;
         int bufferHeight = Console.BufferHeight;
         int neededLines = 10; // 预留足够空间
         
-        if (currentTop + neededLines > bufferHeight)
+        if (writePosition + neededLines > bufferHeight)
         {
-            int linesToScroll = currentTop + neededLines - bufferHeight;
+            int linesToScroll = writePosition + neededLines - bufferHeight;
             _logger.LogInformation("PrintUserMessage #{MsgNum}: Need to scroll {Lines} lines for space", msgNum, linesToScroll);
             
+            // 移动到缓冲区底部进行滚动
+            Console.SetCursorPosition(0, bufferHeight - 1);
             for (int i = 0; i < linesToScroll; i++)
             {
                 Console.WriteLine();
             }
-            // 滚屏后光标会在新位置，需要回到正确的位置
-            // 滚屏后，原来的 currentTop 位置的内容向上移动了 linesToScroll 行
-            // 新的写入位置应该是 bufferHeight - neededLines
-            Console.SetCursorPosition(0, bufferHeight - neededLines);
-            _logger.LogInformation("PrintUserMessage #{MsgNum}: After scroll, CursorTop={CursorTop}", msgNum, Console.CursorTop);
+            // 滚动后，写入位置需要调整
+            writePosition = bufferHeight - neededLines;
+            Console.SetCursorPosition(0, writePosition);
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: After scroll, writePosition={WritePos}", msgNum, writePosition);
         }
 
         // 打印用户消息
@@ -441,8 +523,9 @@ public class ConsoleUserInterface : IUserInterface
         // 行偏移 0: [Status] (Processing 时显示动画，否则为空行)
         // 行偏移 1: Top Line (───)
         // 行偏移 2~N: Input (>> ...) <- 可能多行
-        // 行偏移 N+1: Bottom Line (───)
-        // 行偏移 N+2: Status Bar (路径 | 模型)
+        // 行偏移 N+1~M: Command completion list (如果有)
+        // 行偏移 M+1: Bottom Line (───)
+        // 行偏移 M+2: Status Bar (路径 | 模型)
 
         int safeWidth = Math.Max(1, Console.WindowWidth - 1);
         string lineStr = new string('─', safeWidth);
@@ -456,30 +539,53 @@ public class ConsoleUserInterface : IUserInterface
         // 限制最大输入行数，避免占满整个屏幕
         const int maxInputLines = 5;
         inputLines = Math.Min(inputLines, maxInputLines);
+
+        // 命令补全列表行数（如果有命令补全，则不显示状态栏）
+        int completionLines = _matchedCommands.Length;
+        int statusBarLines = completionLines > 0 ? 0 : 1;
         
-        // 总行数 = 状态行(1) + 上横线(1) + 输入行(N) + 下横线(1) + 状态栏(1)
-        int totalLines = 4 + inputLines;
+        // 总行数 = 状态行(1) + 上横线(1) + 输入行(N) + 下横线(1) + (补全列表 或 状态栏)
+        int totalLines = 3 + inputLines + Math.Max(completionLines, statusBarLines);
         int inputLineOffset = 2; // 输入行从第3行开始（索引2）
 
         int startTop;
+        int bufferHeight = Console.BufferHeight;
 
         if (!overwrite)
         {
             startTop = Console.CursorTop;
             
-            int bufferHeight = Console.BufferHeight;
+            // 如果空间不够，需要滚动屏幕
             if (startTop + totalLines > bufferHeight)
             {
-                startTop = Math.Max(0, bufferHeight - totalLines);
+                int linesToScroll = startTop + totalLines - bufferHeight;
+                // 通过输出空行来滚动屏幕
+                Console.SetCursorPosition(0, bufferHeight - 1);
+                for (int i = 0; i < linesToScroll; i++)
+                {
+                    Console.WriteLine();
+                }
+                // 滚动后，startTop 需要调整
+                startTop = bufferHeight - totalLines;
             }
             
-            _logger.LogInformation("RenderBottomArea: startTop={StartTop}, totalLines={TotalLines}, inputLines={InputLines}", startTop, totalLines, inputLines);
+            _logger.LogInformation("RenderBottomArea: startTop={StartTop}, totalLines={TotalLines}, inputLines={InputLines}, bufferHeight={BufferHeight}", startTop, totalLines, inputLines, bufferHeight);
         }
         else
         {
+            // 重绘模式：检查之前记录的位置是否仍然有效
             if (_bottomAreaStartLine >= 0)
             {
                 startTop = _bottomAreaStartLine;
+                
+                // 如果当前光标位置超出了底部区域，说明有新内容输出，需要重新计算
+                int currentTop = Console.CursorTop;
+                if (currentTop > startTop + totalLines)
+                {
+                    // 新内容已经超出底部区域，需要从当前位置重新开始
+                    startTop = currentTop - totalLines + 1;
+                    if (startTop < 0) startTop = 0;
+                }
             }
             else
             {
@@ -488,9 +594,9 @@ public class ConsoleUserInterface : IUserInterface
             }
 
             if (startTop < 0) startTop = 0;
-            if (startTop + totalLines > Console.BufferHeight)
+            if (startTop + totalLines > bufferHeight)
             {
-                startTop = Math.Max(0, Console.BufferHeight - totalLines);
+                startTop = Math.Max(0, bufferHeight - totalLines);
             }
         }
 
@@ -541,38 +647,57 @@ public class ConsoleUserInterface : IUserInterface
             Console.Write("\x1b[90m" + lineStr + "\x1b[0m");
             Console.WriteLine();
 
-            // [Status Bar]
-            Console.SetCursorPosition(0, Console.CursorTop);
-            
-            string pathDisplay = string.IsNullOrEmpty(_currentPath) ? "" : _currentPath;
-            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (!string.IsNullOrEmpty(userProfile) && pathDisplay.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase))
+            // [Command Completion List] - 命令补全列表（在底部横线下方）
+            if (_matchedCommands.Length > 0)
             {
-                pathDisplay = "~" + pathDisplay.Substring(userProfile.Length);
+                for (int i = 0; i < _matchedCommands.Length; i++)
+                {
+                    var cmd = _matchedCommands[i];
+                    var isSelected = i == _selectedCommandIndex;
+                    var prefix = isSelected ? "› " : "  ";
+                    var cmdStyle = isSelected ? "[cyan]" : "[dim]";
+                    var descStyle = "[dim]";
+                    
+                    Console.SetCursorPosition(0, Console.CursorTop);
+                    AnsiConsole.Markup($"{prefix}{cmdStyle}{Markup.Escape(cmd.Name)}[/]  {descStyle}{Markup.Escape(cmd.Description)}[/]");
+                    Console.WriteLine();
+                }
             }
-            
-            string modelDisplay = "";
-            if (!string.IsNullOrEmpty(_currentModelId))
+            else
             {
-                int underscoreIndex = _currentModelId.IndexOf('_');
-                modelDisplay = underscoreIndex >= 0 ? _currentModelId.Substring(underscoreIndex + 1) : _currentModelId;
-            }
-            
-            int maxPathLen = safeWidth - modelDisplay.Length - 3;
-            if (maxPathLen > 0 && pathDisplay.Length > maxPathLen)
-            {
-                pathDisplay = "..." + pathDisplay.Substring(pathDisplay.Length - maxPathLen + 3);
-            }
-            
-            int modelStartPos = safeWidth - modelDisplay.Length;
-            if (modelStartPos < pathDisplay.Length + 1) modelStartPos = pathDisplay.Length + 1;
-            
-            AnsiConsole.Markup($"[grey]{Markup.Escape(pathDisplay)}[/]");
-            
-            if (!string.IsNullOrEmpty(modelDisplay) && modelStartPos < safeWidth)
-            {
-                Console.SetCursorPosition(modelStartPos, Console.CursorTop);
-                AnsiConsole.Markup($"[cyan]{Markup.Escape(modelDisplay)}[/]");
+                // [Status Bar] - 只在没有命令补全时显示
+                Console.SetCursorPosition(0, Console.CursorTop);
+                
+                string pathDisplay = string.IsNullOrEmpty(_currentPath) ? "" : _currentPath;
+                string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (!string.IsNullOrEmpty(userProfile) && pathDisplay.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase))
+                {
+                    pathDisplay = "~" + pathDisplay.Substring(userProfile.Length);
+                }
+                
+                string modelDisplay = "";
+                if (!string.IsNullOrEmpty(_currentModelId))
+                {
+                    int underscoreIndex = _currentModelId.IndexOf('_');
+                    modelDisplay = underscoreIndex >= 0 ? _currentModelId.Substring(underscoreIndex + 1) : _currentModelId;
+                }
+                
+                int maxPathLen = safeWidth - modelDisplay.Length - 3;
+                if (maxPathLen > 0 && pathDisplay.Length > maxPathLen)
+                {
+                    pathDisplay = "..." + pathDisplay.Substring(pathDisplay.Length - maxPathLen + 3);
+                }
+                
+                int modelStartPos = safeWidth - modelDisplay.Length;
+                if (modelStartPos < pathDisplay.Length + 1) modelStartPos = pathDisplay.Length + 1;
+                
+                AnsiConsole.Markup($"[grey]{Markup.Escape(pathDisplay)}[/]");
+                
+                if (!string.IsNullOrEmpty(modelDisplay) && modelStartPos < safeWidth)
+                {
+                    Console.SetCursorPosition(modelStartPos, Console.CursorTop);
+                    AnsiConsole.Markup($"[cyan]{Markup.Escape(modelDisplay)}[/]");
+                }
             }
 
             // --- 恢复光标 ---
@@ -778,6 +903,99 @@ public class ConsoleUserInterface : IUserInterface
         lock (_consoleLock)
         {
             _history.Add(new HistoryItem(HistoryType.ToolCall, formattedContent));
+        }
+    }
+
+    public string? ShowSelectionMenu(string title, string? description, IEnumerable<(string Display, string Value)> options)
+    {
+        var optionsList = options.ToList();
+        if (optionsList.Count == 0)
+            return null;
+
+        // 先清除底部区域（在锁内）
+        lock (_consoleLock)
+        {
+            ClearBottomArea();
+        }
+        
+        // 显示标题和描述
+        AnsiConsole.MarkupLine($"[bold]{Markup.Escape(title)}[/]");
+        if (!string.IsNullOrEmpty(description))
+        {
+            AnsiConsole.MarkupLine($"[dim]{Markup.Escape(description)}[/]");
+        }
+        AnsiConsole.MarkupLine("[dim]↑↓ 选择, Enter 确认, Esc 取消[/]");
+        AnsiConsole.WriteLine();
+
+        // 自定义选择逻辑（因为 SelectionPrompt 可能有问题）
+        var choices = optionsList.Select(o => o.Display).ToArray();
+        int selectedIndex = 0;
+        
+        Console.CursorVisible = false;
+        int startLine = Console.CursorTop;
+        
+        // 初始渲染
+        RenderChoices(choices, selectedIndex, startLine);
+        
+        while (true)
+        {
+            var key = Console.ReadKey(true);
+            
+            if (key.Key == ConsoleKey.UpArrow)
+            {
+                selectedIndex = selectedIndex <= 0 ? choices.Length - 1 : selectedIndex - 1;
+                RenderChoices(choices, selectedIndex, startLine);
+            }
+            else if (key.Key == ConsoleKey.DownArrow)
+            {
+                selectedIndex = (selectedIndex + 1) % choices.Length;
+                RenderChoices(choices, selectedIndex, startLine);
+            }
+            else if (key.Key == ConsoleKey.Enter)
+            {
+                Console.CursorVisible = true;
+                Console.SetCursorPosition(0, startLine + choices.Length);
+                
+                // 重新渲染底部区域
+                lock (_consoleLock)
+                {
+                    RenderBottomArea();
+                }
+                
+                return optionsList[selectedIndex].Value;
+            }
+            else if (key.Key == ConsoleKey.Escape)
+            {
+                Console.CursorVisible = true;
+                Console.SetCursorPosition(0, startLine + choices.Length);
+                
+                // 重新渲染底部区域
+                lock (_consoleLock)
+                {
+                    RenderBottomArea();
+                }
+                
+                return null;
+            }
+        }
+    }
+
+    private void RenderChoices(string[] choices, int selectedIndex, int startLine)
+    {
+        for (int i = 0; i < choices.Length; i++)
+        {
+            Console.SetCursorPosition(0, startLine + i);
+            Console.Write(new string(' ', Console.WindowWidth - 1)); // 清除行
+            Console.SetCursorPosition(0, startLine + i);
+            
+            if (i == selectedIndex)
+            {
+                AnsiConsole.Markup($"[cyan]› {Markup.Escape(choices[i])}[/]");
+            }
+            else
+            {
+                AnsiConsole.Markup($"[dim]  {Markup.Escape(choices[i])}[/]");
+            }
         }
     }
 }

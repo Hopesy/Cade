@@ -16,7 +16,17 @@ public class FileSystemPlugin
         if (!File.Exists(path))
             return $"错误: 文件不存在 - {path}";
 
-        return File.ReadAllText(path);
+        try
+        {
+            // 使用 FileShare.ReadWrite 允许读取被其他进程占用的文件
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
+        }
+        catch (Exception ex)
+        {
+            return $"错误: 无法读取文件 - {ex.Message}";
+        }
     }
 
     [KernelFunction, Description("将内容写入到指定文件")]

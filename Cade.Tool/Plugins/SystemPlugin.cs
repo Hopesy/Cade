@@ -56,24 +56,31 @@ public class SystemPlugin
         [Description("要执行的Shell命令，如: dotnet new console -n MyApp, npm install, git status")] string command,
         [Description("工作目录，默认当前目录")] string? workingDirectory = null)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/bash",
-            Arguments = OperatingSystem.IsWindows() ? $"/c {command}" : $"-c \"{command}\"",
-            WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        using var process = Process.Start(psi);
-        if (process == null) return "无法启动进程";
-
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        
         try
         {
+            // 验证工作目录
+            var workDir = workingDirectory ?? Environment.CurrentDirectory;
+            if (!Directory.Exists(workDir))
+            {
+                return $"错误: 工作目录不存在 - {workDir}";
+            }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/bash",
+                Arguments = OperatingSystem.IsWindows() ? $"/c {command}" : $"-c \"{command}\"",
+                WorkingDirectory = workDir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            if (process == null) return "错误: 无法启动进程";
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            
             var outputTask = process.StandardOutput.ReadToEndAsync(cts.Token);
             var errorTask = process.StandardError.ReadToEndAsync(cts.Token);
             
@@ -91,8 +98,11 @@ public class SystemPlugin
         }
         catch (OperationCanceledException)
         {
-            process.Kill(entireProcessTree: true);
             return $"命令执行超时（30秒），已终止进程。";
+        }
+        catch (Exception ex)
+        {
+            return $"错误: 命令执行失败 - {ex.Message}";
         }
     }
 }

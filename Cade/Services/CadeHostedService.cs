@@ -278,17 +278,24 @@ public class CadeHostedService : BackgroundService
             return;
         }
 
-        string selectedModel = null!;
-
-        // 使用 SafeRender 包裹交互式 Prompt，确保输入行被正确清除和恢复
-        _ui.SafeRender(() => 
+        // 构建选项列表，显示模型名称
+        var options = models.Select(m =>
         {
-            selectedModel = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("请选择模型:")
-                    .PageSize(10)
-                    .AddChoices(models.Select(m => m.Id)));
+            // 模型ID格式: uuid_modelname，只显示下划线后面的部分
+            var displayName = m.Id;
+            var underscoreIndex = m.Id.IndexOf('_');
+            if (underscoreIndex >= 0)
+                displayName = m.Id.Substring(underscoreIndex + 1);
+            
+            var isCurrentModel = m.Id == _viewModel.CurrentModelId;
+            var display = isCurrentModel ? $"{displayName} ✓" : displayName;
+            return (Display: display, Value: m.Id);
         });
+
+        var selectedModel = _ui.ShowSelectionMenu(
+            "选择模型",
+            "切换当前会话使用的 AI 模型",
+            options);
 
         if (selectedModel != null)
         {

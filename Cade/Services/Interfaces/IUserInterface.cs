@@ -21,4 +21,13 @@ public interface IUserInterface
     /// 添加工具调用到历史记录（用于窗口大小变化时重绘）
     /// </summary>
     void AddToolCallToHistory(string formattedContent);
+
+    /// <summary>
+    /// 显示交互式选择菜单
+    /// </summary>
+    /// <param name="title">标题</param>
+    /// <param name="description">描述</param>
+    /// <param name="options">选项列表 (显示文本, 值)</param>
+    /// <returns>选中的值，ESC 取消返回 null</returns>
+    string? ShowSelectionMenu(string title, string? description, IEnumerable<(string Display, string Value)> options);
 }
