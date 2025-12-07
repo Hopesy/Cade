@@ -23,6 +23,12 @@ public class ConsoleUserInterface : IUserInterface
     private readonly ILogger<ConsoleUserInterface> _logger;
     private static int _messageCount = 0;
     
+    // 历史消息存储，用于窗口大小变化时重绘
+    private readonly List<HistoryItem> _history = new();
+    
+    private record HistoryItem(HistoryType Type, string Content, string? Header = null);
+    private enum HistoryType { UserMessage, Response, ToolCall, Error }
+    
     public ConsoleUserInterface(ILogger<ConsoleUserInterface> logger)
     {
         _logger = logger;
@@ -132,15 +138,13 @@ public class ConsoleUserInterface : IUserInterface
     {
         lock (_consoleLock)
         {
-            // 检测窗口大小变化，如果变化则清屏（避免横线换行导致的混乱）
+            // 检测窗口大小变化，如果变化则清屏并重绘历史消息
             int currentWidth = Console.WindowWidth;
             if (_lastWindowWidth != currentWidth && _lastWindowWidth > 0)
             {
                 _lastWindowWidth = currentWidth;
-                // 窗口大小变化时，清屏并重新显示欢迎界面
-                AnsiConsole.Clear();
                 _bottomAreaStartLine = -1;
-                ShowWelcome();
+                RedrawAll();
                 return;
             }
             
@@ -304,28 +308,62 @@ public class ConsoleUserInterface : IUserInterface
             
             _logger.LogInformation("SafeRender after action: CursorTop={CursorTop}", Console.CursorTop);
             
-            // 确保有足够空间渲染底部区域（5行），如果不够则滚屏
-            const int totalLines = 5;
-            int currentTop = Console.CursorTop;
-            int bufferHeight = Console.BufferHeight;
-            if (currentTop + totalLines > bufferHeight)
-            {
-                int linesToScroll = currentTop + totalLines - bufferHeight;
-                _logger.LogInformation("SafeRender: Need to scroll {Lines} lines", linesToScroll);
-                for (int i = 0; i < linesToScroll; i++)
-                {
-                    Console.WriteLine();
-                }
-            }
-            
+            // 直接渲染底部区域，RenderBottomArea 会自动处理空间不足的情况
             RenderBottomArea();
             
             _logger.LogInformation("SafeRender END: _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", _bottomAreaStartLine, Console.CursorTop);
         }
     }
 
+    private void RedrawAll()
+    {
+        AnsiConsole.Clear();
+        
+        // 重绘欢迎界面（简化版，不显示完整 logo）
+        AnsiConsole.MarkupLine($"[{PrimaryColor.ToMarkup()}]Cade Code[/] - AI 编程助手\n");
+        
+        // 重绘历史消息
+        foreach (var item in _history)
+        {
+            switch (item.Type)
+            {
+                case HistoryType.UserMessage:
+                    Console.WriteLine($"\x1b[32m->\x1b[0m \x1b[1;37m{item.Content}\x1b[0m");
+                    break;
+                case HistoryType.Response:
+                    if (!string.IsNullOrEmpty(item.Header))
+                        AnsiConsole.MarkupLine($"[{PrimaryColor.ToMarkup()}]⋮[/] {Markup.Escape(item.Header)}");
+                    if (!string.IsNullOrWhiteSpace(item.Content))
+                    {
+                        try
+                        {
+                            var parsed = MarkdownRenderer.Parse(item.Content);
+                            if (parsed.Elements.Count > 0)
+                                AnsiConsole.Write(new Rows(parsed.Elements));
+                        }
+                        catch
+                        {
+                            AnsiConsole.WriteLine(item.Content);
+                        }
+                    }
+                    break;
+                case HistoryType.ToolCall:
+                    AnsiConsole.MarkupLine(item.Content); // 已格式化的工具调用
+                    break;
+                case HistoryType.Error:
+                    AnsiConsole.MarkupLine($"[bold red]Error:[/] {Markup.Escape(item.Content)}");
+                    break;
+            }
+        }
+        
+        RenderBottomArea();
+    }
+
     private void PrintUserMessage(string message)
     {
+        // 保存到历史
+        _history.Add(new HistoryItem(HistoryType.UserMessage, message));
+        
         _messageCount++;
         int msgNum = _messageCount;
         
@@ -335,14 +373,14 @@ public class ConsoleUserInterface : IUserInterface
         // 清除底部区域
         if (_bottomAreaStartLine >= 0)
         {
-            const int totalLines = 5;
+            const int maxTotalLines = 10; // 清除足够多的行
             int startTop = _bottomAreaStartLine;
             int safeWidth = Math.Max(0, Console.WindowWidth - 1);
             string clearLine = new string(' ', safeWidth);
             
-            _logger.LogInformation("PrintUserMessage #{MsgNum}: Clearing {TotalLines} lines from {StartTop}", msgNum, totalLines, startTop);
+            _logger.LogInformation("PrintUserMessage #{MsgNum}: Clearing {TotalLines} lines from {StartTop}", msgNum, maxTotalLines, startTop);
             
-            for (int i = 0; i < totalLines; i++)
+            for (int i = 0; i < maxTotalLines; i++)
             {
                 int lineToC = startTop + i;
                 if (lineToC >= 0 && lineToC < Console.BufferHeight)
@@ -365,10 +403,10 @@ public class ConsoleUserInterface : IUserInterface
             _logger.LogInformation("PrintUserMessage #{MsgNum}: No bottom area to clear, CursorTop={CursorTop}", msgNum, Console.CursorTop);
         }
 
-        // 确保有足够的空间：用户消息 1 行 + 底部区域 4 行 = 5 行
+        // 确保有足够的空间
         int currentTop = Console.CursorTop;
         int bufferHeight = Console.BufferHeight;
-        int neededLines = 6; // 1 行用户消息 + 5 行底部区域
+        int neededLines = 10; // 预留足够空间
         
         if (currentTop + neededLines > bufferHeight)
         {
@@ -399,52 +437,56 @@ public class ConsoleUserInterface : IUserInterface
         _logger.LogInformation("RenderBottomArea START: overwrite={Overwrite}, _bottomAreaStartLine={StartLine}, CursorTop={CursorTop}", 
             overwrite, _bottomAreaStartLine, Console.CursorTop);
         
-        // 布局定义 (固定5行):
+        // 布局定义 (动态行数):
         // 行偏移 0: [Status] (Processing 时显示动画，否则为空行)
         // 行偏移 1: Top Line (───)
-        // 行偏移 2: Input (>> ...) <- 光标驻留在此
-        // 行偏移 3: Bottom Line (───)
-        // 行偏移 4: Status Bar (路径 | 模型)
+        // 行偏移 2~N: Input (>> ...) <- 可能多行
+        // 行偏移 N+1: Bottom Line (───)
+        // 行偏移 N+2: Status Bar (路径 | 模型)
 
-        const int totalLines = 5;
-        const int inputLineOffset = 2; // 输入行在第3行（索引2）
-
-        int safeWidth = Math.Max(0, Console.WindowWidth - 1);
+        int safeWidth = Math.Max(1, Console.WindowWidth - 1);
         string lineStr = new string('─', safeWidth);
         string clearLine = new string(' ', safeWidth);
+
+        // 计算输入文本需要的行数
+        string inputText = _inputBuffer.ToString();
+        int inputDisplayWidth = 3 + GetDisplayWidth(inputText); // ">> " + 文本
+        int inputLines = Math.Max(1, (inputDisplayWidth + safeWidth - 1) / safeWidth); // 向上取整
+        
+        // 限制最大输入行数，避免占满整个屏幕
+        const int maxInputLines = 5;
+        inputLines = Math.Min(inputLines, maxInputLines);
+        
+        // 总行数 = 状态行(1) + 上横线(1) + 输入行(N) + 下横线(1) + 状态栏(1)
+        int totalLines = 4 + inputLines;
+        int inputLineOffset = 2; // 输入行从第3行开始（索引2）
 
         int startTop;
 
         if (!overwrite)
         {
-            // 直接使用当前光标位置作为底部区域的起始位置
-            // 不再滚屏，避免覆盖用户消息
             startTop = Console.CursorTop;
             
-            // 如果空间不够，向上调整 startTop，但不能小于 0
             int bufferHeight = Console.BufferHeight;
             if (startTop + totalLines > bufferHeight)
             {
                 startTop = Math.Max(0, bufferHeight - totalLines);
             }
             
-            _logger.LogInformation("RenderBottomArea: startTop={StartTop}, bufferHeight={BufferHeight}", startTop, bufferHeight);
+            _logger.LogInformation("RenderBottomArea: startTop={StartTop}, totalLines={TotalLines}, inputLines={InputLines}", startTop, totalLines, inputLines);
         }
         else
         {
-            // 重绘模式：使用记录的起始行号
             if (_bottomAreaStartLine >= 0)
             {
                 startTop = _bottomAreaStartLine;
             }
             else
             {
-                // 如果没有记录，回溯到起始位置
                 int currentTop = Console.CursorTop;
                 startTop = currentTop - inputLineOffset;
             }
 
-            // 保护性检查
             if (startTop < 0) startTop = 0;
             if (startTop + totalLines > Console.BufferHeight)
             {
@@ -455,15 +497,22 @@ public class ConsoleUserInterface : IUserInterface
         // --- 开始绘制 ---
         try
         {
-            // 隐藏光标以避免渲染过程中的闪烁
             bool wasCursorVisible = Console.CursorVisible;
             Console.CursorVisible = false;
 
-            // [Status Line] - 第1行，总是存在
-            Console.SetCursorPosition(0, startTop);
-            Console.Write(clearLine);
-            Console.SetCursorPosition(0, startTop);
+            // 清除整个底部区域（可能比之前多或少）
+            for (int i = 0; i < totalLines + 2; i++) // +2 以防之前行数更多
+            {
+                int lineY = startTop + i;
+                if (lineY >= 0 && lineY < Console.BufferHeight)
+                {
+                    Console.SetCursorPosition(0, lineY);
+                    Console.Write(clearLine);
+                }
+            }
 
+            // [Status Line]
+            Console.SetCursorPosition(0, startTop);
             if (_isProcessing)
             {
                 var elapsed = DateTime.Now - _processStartTime;
@@ -471,35 +520,30 @@ public class ConsoleUserInterface : IUserInterface
                 string spinner = _spinnerFrames[_spinnerFrame];
                 AnsiConsole.Markup($"[blue]{spinner}[/] {_statusTitle} [grey]{timeStr}[/]");
             }
-            // 如果不是 Processing，状态行为空
             Console.WriteLine();
 
             // [Top Line]
-            Console.Write(clearLine);
             Console.SetCursorPosition(0, Console.CursorTop);
             Console.Write("\x1b[90m" + lineStr + "\x1b[0m");
             Console.WriteLine();
 
-            // [Input Line]
+            // [Input Lines] - 支持多行
             int inputRowTop = Console.CursorTop;
-            Console.Write(clearLine);
             Console.SetCursorPosition(0, inputRowTop);
-
             AnsiConsole.Markup($"[grey]>>[/] ");
-            Console.Write(_inputBuffer.ToString());
-            Console.WriteLine();
+            Console.Write(inputText);
+            
+            // 移动到输入区域结束后的下一行
+            int inputEndRow = inputRowTop + inputLines - 1;
+            Console.SetCursorPosition(0, inputEndRow + 1);
 
             // [Bottom Line]
-            Console.Write(clearLine);
-            Console.SetCursorPosition(0, Console.CursorTop);
             Console.Write("\x1b[90m" + lineStr + "\x1b[0m");
             Console.WriteLine();
 
-            // [Status Bar] - 左边路径，右边模型
-            Console.Write(clearLine);
+            // [Status Bar]
             Console.SetCursorPosition(0, Console.CursorTop);
             
-            // 构建状态栏内容，用户目录替换为 ~
             string pathDisplay = string.IsNullOrEmpty(_currentPath) ? "" : _currentPath;
             string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (!string.IsNullOrEmpty(userProfile) && pathDisplay.StartsWith(userProfile, StringComparison.OrdinalIgnoreCase))
@@ -507,7 +551,6 @@ public class ConsoleUserInterface : IUserInterface
                 pathDisplay = "~" + pathDisplay.Substring(userProfile.Length);
             }
             
-            // 模型ID格式: uuid_modelname，只显示下划线后面的部分
             string modelDisplay = "";
             if (!string.IsNullOrEmpty(_currentModelId))
             {
@@ -515,44 +558,41 @@ public class ConsoleUserInterface : IUserInterface
                 modelDisplay = underscoreIndex >= 0 ? _currentModelId.Substring(underscoreIndex + 1) : _currentModelId;
             }
             
-            // 截断路径如果太长
-            int maxPathLen = safeWidth - modelDisplay.Length - 3; // 留出空间给模型和分隔符
+            int maxPathLen = safeWidth - modelDisplay.Length - 3;
             if (maxPathLen > 0 && pathDisplay.Length > maxPathLen)
             {
                 pathDisplay = "..." + pathDisplay.Substring(pathDisplay.Length - maxPathLen + 3);
             }
             
-            // 计算右对齐的模型位置
             int modelStartPos = safeWidth - modelDisplay.Length;
             if (modelStartPos < pathDisplay.Length + 1) modelStartPos = pathDisplay.Length + 1;
             
-            // 输出路径（灰色）
             AnsiConsole.Markup($"[grey]{Markup.Escape(pathDisplay)}[/]");
             
-            // 输出模型（右对齐，青色）
             if (!string.IsNullOrEmpty(modelDisplay) && modelStartPos < safeWidth)
             {
                 Console.SetCursorPosition(modelStartPos, Console.CursorTop);
                 AnsiConsole.Markup($"[cyan]{Markup.Escape(modelDisplay)}[/]");
             }
-            // 最后一行不 WriteLine
 
             // --- 恢复光标 ---
-            // 计算光标位置：使用到光标位置为止的文本宽度
-            string textBeforeCursor = _inputBuffer.ToString().Substring(0, Math.Min(_cursorPosition, _inputBuffer.Length));
-            int cursorLeft = 3 + GetDisplayWidth(textBeforeCursor);
-            if (cursorLeft >= safeWidth) cursorLeft = safeWidth - 1;
+            // 计算光标在多行输入中的位置
+            string textBeforeCursor = inputText.Substring(0, Math.Min(_cursorPosition, inputText.Length));
+            int totalWidthBeforeCursor = 3 + GetDisplayWidth(textBeforeCursor); // ">> " + 文本
+            int cursorRow = inputRowTop + (totalWidthBeforeCursor / safeWidth);
+            int cursorCol = totalWidthBeforeCursor % safeWidth;
+            
+            // 确保光标在有效范围内
+            cursorRow = Math.Min(cursorRow, inputEndRow);
+            if (cursorCol >= safeWidth) cursorCol = safeWidth - 1;
 
-            // 再次检查 inputRowTop 是否有效 (虽然我们预留了空间，但以防万一)
-            if (inputRowTop >= 0 && inputRowTop < Console.BufferHeight)
+            if (cursorRow >= 0 && cursorRow < Console.BufferHeight)
             {
-                Console.SetCursorPosition(cursorLeft, inputRowTop);
+                Console.SetCursorPosition(cursorCol, cursorRow);
             }
 
-            // 渲染完成后恢复光标显示
             Console.CursorVisible = wasCursorVisible || !_isProcessing;
             
-            // 记录底部区域的起始行号和当前窗口宽度
             _bottomAreaStartLine = startTop;
             _lastWindowWidth = Console.WindowWidth;
             
@@ -560,7 +600,6 @@ public class ConsoleUserInterface : IUserInterface
         }
         catch (Exception ex)
         {
-            // 如果渲染过程中发生任何异常，确保光标可见
             Console.CursorVisible = true;
             _logger.LogError(ex, "RenderBottomArea ERROR");
         }
@@ -608,8 +647,8 @@ public class ConsoleUserInterface : IUserInterface
         // 如果底部区域未渲染，无需清除
         if (_bottomAreaStartLine < 0) return;
         
-        // 固定5行
-        const int totalLines = 5;
+        // 动态计算行数（清除足够多的行以覆盖可能的多行输入）
+        const int maxTotalLines = 10; // 最大可能的行数
         
         int startTop = _bottomAreaStartLine;
         
@@ -619,7 +658,7 @@ public class ConsoleUserInterface : IUserInterface
         int safeWidth = Math.Max(0, Console.WindowWidth - 1);
         string clearLine = new string(' ', safeWidth);
         
-        for (int i = 0; i < totalLines; i++)
+        for (int i = 0; i < maxTotalLines; i++)
         {
             int lineToC = startTop + i;
             if (lineToC >= 0 && lineToC < Console.BufferHeight)
@@ -666,13 +705,15 @@ public class ConsoleUserInterface : IUserInterface
         // 恢复光标
         Console.CursorVisible = true;
 
+        // 保存到历史
+        _history.Add(new HistoryItem(HistoryType.Response, content, header));
+
         SafeRender(() =>
         {
             // 如果有标题，先显示标题
             if (!string.IsNullOrEmpty(header))
             {
                 AnsiConsole.MarkupLine($"[{PrimaryColor.ToMarkup()}]⋮[/] {Markup.Escape(header)}");
-                AnsiConsole.WriteLine();
             }
 
             // 显示内容
@@ -697,16 +738,18 @@ public class ConsoleUserInterface : IUserInterface
                     contentRenderable = new Text(content);
                 }
 
-                // 直接渲染内容，移除 Panel 边框
+                // 直接渲染内容
                 AnsiConsole.Write(contentRenderable);
-                AnsiConsole.WriteLine();
             }
         });
     }
 
     public void ShowError(string message)
     {
-        SafeRender(() => AnsiConsole.MarkupLine($"[bold red]Error:[/] {message}"));
+        // 保存到历史
+        _history.Add(new HistoryItem(HistoryType.Error, message));
+        
+        SafeRender(() => AnsiConsole.MarkupLine($"[bold red]Error:[/] {Markup.Escape(message)}"));
     }
 
     public void ShowToolLog(string toolName, string command, string output)
@@ -728,5 +771,13 @@ public class ConsoleUserInterface : IUserInterface
     public void ShowLog(string message)
     {
         SafeRender(() => AnsiConsole.MarkupLine($"[grey]  {Markup.Escape(message)}[/]"));
+    }
+
+    public void AddToolCallToHistory(string formattedContent)
+    {
+        lock (_consoleLock)
+        {
+            _history.Add(new HistoryItem(HistoryType.ToolCall, formattedContent));
+        }
     }
 }

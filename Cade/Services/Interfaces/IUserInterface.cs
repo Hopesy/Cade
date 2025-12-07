@@ -16,4 +16,9 @@ public interface IUserInterface
     void SetStatus(string path, string modelId);
     void SafeRender(Action action);
     void Update();
+    
+    /// <summary>
+    /// 添加工具调用到历史记录（用于窗口大小变化时重绘）
+    /// </summary>
+    void AddToolCallToHistory(string formattedContent);
 }

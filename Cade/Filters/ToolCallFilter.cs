@@ -54,6 +54,30 @@ public class ToolCallFilter : IFunctionInvocationFilter
             // 先停止当前状态
             _ui.SetProcessing(false);
 
+            // 构建格式化的工具调用内容用于历史记录
+            var historyBuilder = new StringBuilder();
+            historyBuilder.AppendLine($"[green]●[/] [white]{Markup.Escape(displayName)}[/] [dim]({elapsed:F1}s)[/]");
+            
+            if (!string.IsNullOrWhiteSpace(resultValue))
+            {
+                var output = resultValue.Length > 500 ? resultValue[..500] + "..." : resultValue;
+                var lines = output.Split('\n').Take(10).ToArray();
+
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    var prefix = i == 0 ? "╰─" : "  ";
+                    historyBuilder.AppendLine($"[dim]{prefix} {Markup.Escape(lines[i])}[/]");
+                }
+
+                if (output.Split('\n').Length > 10)
+                {
+                    historyBuilder.AppendLine($"[dim]   ...[/]");
+                }
+            }
+            
+            // 保存到历史
+            _ui.AddToolCallToHistory(historyBuilder.ToString().TrimEnd());
+
             _ui.SafeRender(() =>
             {
                 // 显示完成状态
