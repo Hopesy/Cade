@@ -1,6 +1,8 @@
 using Cade.Provider.Services.Interfaces;
 using Cade.Services.Interfaces;
 using Cade.ViewModels;
+using Cade.Data.Entities;
+using Cade.Data.Services.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Newtonsoft.Json.Linq;
@@ -17,6 +19,10 @@ public class CadeHostedService : BackgroundService
     private readonly IProviderService _providerService;
     private readonly IConfiguration _configuration;
     private readonly IAiService _aiService;
+    private readonly IChatDataService _chatDataService;
+    
+    // 当前会话
+    private ChatSession? _currentSession;
     
     // 用于取消当前 AI 任务
     private CancellationTokenSource? _currentTaskCts;
@@ -29,7 +35,8 @@ public class CadeHostedService : BackgroundService
         IProviderConfigService configService,
         IProviderService providerService,
         IConfiguration configuration,
-        IAiService aiService)
+        IAiService aiService,
+        IChatDataService chatDataService)
     {
         _ui = ui;
         _viewModel = viewModel;
@@ -38,7 +45,7 @@ public class CadeHostedService : BackgroundService
         _providerService = providerService;
         _configuration = configuration;
         _aiService = aiService;
-        // 工具调用由 ToolCallFilter 处理，不再订阅事件
+        _chatDataService = chatDataService;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -108,6 +115,19 @@ public class CadeHostedService : BackgroundService
             configMissing = true;
             _ui.ShowError($"初始化AI服务失败: {ex.Message}");
         }
+
+        // 设置工具调用回调，保存到数据库
+        _aiService.SetToolCallCallback(async (toolName, formattedContent) =>
+        {
+            if (_currentSession != null)
+            {
+                await _chatDataService.AddMessageAsync(
+                    _currentSession.Id, 
+                    Data.Entities.MessageType.ToolCall, 
+                    formattedContent, 
+                    toolName: toolName);
+            }
+        });
 
         _ui.ShowWelcome();
         
@@ -209,8 +229,17 @@ public class CadeHostedService : BackgroundService
 
         try
         {
+            // 确保有当前会话
+            await EnsureSessionAsync();
+
             // SetProcessing 已在主循环中同步调用，这里不再重复调用
             _viewModel.CurrentInput = input;
+
+            // 立即保存用户消息到数据库
+            if (_currentSession != null)
+            {
+                await _chatDataService.AddMessageAsync(_currentSession.Id, Data.Entities.MessageType.User, input);
+            }
 
             // 等待 AI 回复（此时思考动画在底部运行），传入取消令牌
             await _viewModel.SubmitCommandWithCancellation(cts.Token);
@@ -218,6 +247,18 @@ public class CadeHostedService : BackgroundService
             // 检查是否被取消
             if (cts.Token.IsCancellationRequested)
                 return;
+
+            // 保存思维链内容到数据库
+            if (_currentSession != null && !string.IsNullOrEmpty(_viewModel.LastReasoningContent))
+            {
+                await _chatDataService.AddMessageAsync(_currentSession.Id, Data.Entities.MessageType.Reasoning, _viewModel.LastReasoningContent, _viewModel.CurrentModelId);
+            }
+
+            // 保存 AI 回复到数据库
+            if (_currentSession != null && !string.IsNullOrEmpty(_viewModel.LastResponse))
+            {
+                await _chatDataService.AddMessageAsync(_currentSession.Id, Data.Entities.MessageType.Assistant, _viewModel.LastResponse, _viewModel.CurrentModelId);
+            }
 
             // 收到回复后，停止思考动画
             _ui.SetProcessing(false);
@@ -235,7 +276,7 @@ public class CadeHostedService : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            // 任务被取消，不做任何处理（CancelCurrentTask 已处理 UI）
+            // 任务被取消，用户消息已保存
         }
         catch (Exception ex)
         {
@@ -310,11 +351,21 @@ public class CadeHostedService : BackgroundService
                 await HandleThinkCommand();
                 break;
 
+            case "/continue":
+                await HandleContinueCommand();
+                break;
+
+            case "/clear":
+                await HandleClearCommand();
+                break;
+
             case "/help":
                 _ui.ShowResponse(
                     "[bold]可用命令 (Available Commands):[/]\n\n" +
                     "* [green]/model[/]: 切换 AI 模型 (Switch AI Model)\n" +
                     "* [green]/think[/]: 切换思考模式 (Toggle Think Mode) - Tab 快捷键\n" +
+                    "* [green]/continue[/]: 恢复上次对话 (Continue Last Session)\n" +
+                    "* [green]/clear[/]: 清空对话历史 (Clear History)\n" +
                     "* [green]/exit[/] 或 [green]/quit[/]: 退出程序 (Exit)\n" +
                     "* [green]/help[/]: 显示此帮助信息 (Show Help)");
                 break;
@@ -378,6 +429,98 @@ public class CadeHostedService : BackgroundService
         
         // 直接更新状态栏，不输出消息
         _ui.SetStatus(_viewModel.CurrentPath, _viewModel.CurrentModelId, _viewModel.ShowReasoning);
+    }
+
+    private async Task HandleContinueCommand()
+    {
+        try
+        {
+            var workDir = Environment.CurrentDirectory;
+            var session = await _chatDataService.GetSessionByWorkDirectoryAsync(workDir);
+
+            if (session == null || session.Messages.Count == 0)
+            {
+                _ui.ShowResponse("[yellow]当前目录没有历史对话记录[/]");
+                return;
+            }
+
+            // 恢复会话到 AI 服务（只恢复 User 和 Assistant 消息）
+            _currentSession = session;
+            var chatMessages = session.Messages
+                .Where(m => m.Type == Data.Entities.MessageType.User || m.Type == Data.Entities.MessageType.Assistant)
+                .ToList();
+            _aiService.RestoreHistory(chatMessages);
+
+            // 渲染历史消息到界面
+            _ui.ShowResponse($"[green]已恢复 {session.Messages.Count} 条对话记录[/]\n");
+            
+            foreach (var msg in session.Messages.OrderBy(m => m.SequenceNumber))
+            {
+                switch (msg.Type)
+                {
+                    case Data.Entities.MessageType.User:
+                        _ui.RenderUserMessage(msg.Content);
+                        break;
+                    
+                    case Data.Entities.MessageType.ToolCall:
+                        _ui.RenderToolCall(msg.Content);
+                        break;
+                    
+                    case Data.Entities.MessageType.Reasoning:
+                        _ui.RenderReasoning(msg.Content);
+                        break;
+                    
+                    case Data.Entities.MessageType.Assistant:
+                        var summary = ExtractSummary(msg.Content);
+                        var body = RemoveFirstLine(msg.Content);
+                        _ui.ShowResponse(body, summary);
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _ui.ShowError($"恢复对话失败: {ex.Message}");
+        }
+    }
+
+    private async Task HandleClearCommand()
+    {
+        try
+        {
+            if (_currentSession != null)
+            {
+                await _chatDataService.ClearMessagesAsync(_currentSession.Id);
+                _currentSession.Messages.Clear();
+            }
+
+            _aiService.ClearHistory();
+            _ui.ShowResponse("[green]对话历史已清空[/]");
+        }
+        catch (Exception ex)
+        {
+            _ui.ShowError($"清空对话失败: {ex.Message}");
+        }
+    }
+
+    private async Task EnsureSessionAsync()
+    {
+        if (_currentSession != null) return;
+
+        var workDir = Environment.CurrentDirectory;
+        
+        // 尝试获取现有会话
+        _currentSession = await _chatDataService.GetSessionByWorkDirectoryAsync(workDir);
+        
+        // 如果不存在，创建新会话
+        if (_currentSession == null)
+        {
+            var modelName = _viewModel.CurrentModelId;
+            var idx = modelName.IndexOf('_');
+            if (idx >= 0) modelName = modelName.Substring(idx + 1);
+            
+            _currentSession = await _chatDataService.CreateSessionAsync(workDir, modelName);
+        }
     }
 
     private async Task UpdateAppSettingsAsync(string key, string value)

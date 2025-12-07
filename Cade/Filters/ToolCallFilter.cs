@@ -14,6 +14,11 @@ namespace Cade.Filters;
 public class ToolCallFilter : IFunctionInvocationFilter
 {
     private readonly IUserInterface _ui;
+    
+    /// <summary>
+    /// 工具调用回调，用于保存到数据库
+    /// </summary>
+    public Func<string, string, Task>? OnToolCallCompleted { get; set; }
 
     public ToolCallFilter(IUserInterface ui)
     {
@@ -76,7 +81,14 @@ public class ToolCallFilter : IFunctionInvocationFilter
             }
             
             // 保存到历史
-            _ui.AddToolCallToHistory(historyBuilder.ToString().TrimEnd());
+            var toolCallContent = historyBuilder.ToString().TrimEnd();
+            _ui.AddToolCallToHistory(toolCallContent);
+            
+            // 触发回调保存到数据库
+            if (OnToolCallCompleted != null)
+            {
+                _ = OnToolCallCompleted(displayName, toolCallContent);
+            }
 
             _ui.SafeRender(() =>
             {

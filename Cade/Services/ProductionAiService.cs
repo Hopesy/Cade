@@ -19,6 +19,12 @@ public class ProductionAiService : IAiService
     private readonly FileSystemPlugin _fileSystemPlugin;
     private readonly SystemPlugin _systemPlugin;
     private readonly ChatHistory _chatHistory = new();
+    
+    // 工具调用过滤器（保持引用以便设置回调）
+    private ToolCallFilter? _toolCallFilter;
+    
+    // 工具调用回调
+    private Func<string, string, Task>? _toolCallCallback;
 
     // 工具调用由 ToolCallFilter 处理
     public event EventHandler<ToolCallEventArgs>? ToolCalled { add { } remove { } }
@@ -243,10 +249,66 @@ public class ProductionAiService : IAiService
 
         // 注册工具调用过滤器
         if (!kernel.FunctionInvocationFilters.Any(f => f is ToolCallFilter))
-            kernel.FunctionInvocationFilters.Add(new ToolCallFilter(_ui));
+        {
+            _toolCallFilter = new ToolCallFilter(_ui)
+            {
+                OnToolCallCompleted = _toolCallCallback
+            };
+            kernel.FunctionInvocationFilters.Add(_toolCallFilter);
+        }
 
         // 注册自动函数调用过滤器（显示思考过程）
         if (!kernel.AutoFunctionInvocationFilters.Any(f => f is AutoFunctionFilter))
             kernel.AutoFunctionInvocationFilters.Add(new AutoFunctionFilter(_ui));
+    }
+
+    public void SetToolCallCallback(Func<string, string, Task>? callback)
+    {
+        _toolCallCallback = callback;
+        if (_toolCallFilter != null)
+        {
+            _toolCallFilter.OnToolCallCompleted = callback;
+        }
+    }
+
+    public void RestoreHistory(IEnumerable<Data.Entities.ChatMessage> messages)
+    {
+        // 保留系统提示词，清除其他历史
+        var systemMessage = _chatHistory.FirstOrDefault(m => m.Role == Microsoft.SemanticKernel.ChatCompletion.AuthorRole.System);
+        _chatHistory.Clear();
+        
+        if (systemMessage != null)
+        {
+            _chatHistory.Add(systemMessage);
+        }
+
+        // 恢复历史消息
+        foreach (var msg in messages.OrderBy(m => m.SequenceNumber))
+        {
+            if (msg.IsUserMessage)
+            {
+                _chatHistory.AddUserMessage(msg.Content);
+            }
+            else
+            {
+                _chatHistory.AddAssistantMessage(msg.Content);
+            }
+        }
+
+        _logger.LogInformation("已恢复 {Count} 条历史消息", messages.Count());
+    }
+
+    public void ClearHistory()
+    {
+        // 保留系统提示词
+        var systemMessage = _chatHistory.FirstOrDefault(m => m.Role == Microsoft.SemanticKernel.ChatCompletion.AuthorRole.System);
+        _chatHistory.Clear();
+        
+        if (systemMessage != null)
+        {
+            _chatHistory.Add(systemMessage);
+        }
+
+        _logger.LogInformation("已清空对话历史");
     }
 }

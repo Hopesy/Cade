@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
+using FreeSql;
 using Cade;
 using Cade.Services;
 using Cade.ViewModels;
@@ -12,6 +13,9 @@ using Cade.Provider.Models;
 using Cade.Provider.Services;
 using Cade.Provider.Services.Interfaces;
 using Cade.Services.Interfaces;
+using Cade.Data.Configuration;
+using Cade.Data.Services;
+using Cade.Data.Services.Interfaces;
 
 // 构建 Host
 var builder = Host.CreateApplicationBuilder(args);
@@ -52,13 +56,17 @@ builder.Services.AddSingleton<SystemPlugin>();
 // 4. AI 服务
 builder.Services.AddSingleton<IAiService, ProductionAiService>();
 
-// 5. ViewModel
+// 5. 数据服务 (FreeSql + SQLite)
+builder.Services.AddSingleton<IFreeSql>(_ => FreeSqlConfig.CreateInstance());
+builder.Services.AddSingleton<IChatDataService, ChatDataService>();
+
+// 6. ViewModel
 builder.Services.AddSingleton<MainViewModel>();
 
-// 6. MCP 加载服务 (启动时连接 MCP Servers)
+// 7. MCP 加载服务 (启动时连接 MCP Servers)
 builder.Services.AddHostedService<McpLoaderService>();
 
-// 7. Hosted Service (主程序入口)
+// 8. Hosted Service (主程序入口)
 builder.Services.AddHostedService<CadeHostedService>();
 
 // 构建并运行

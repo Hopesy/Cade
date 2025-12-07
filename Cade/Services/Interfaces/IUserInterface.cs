@@ -36,4 +36,19 @@ public interface IUserInterface
     /// 获取当前输入内容
     /// </summary>
     string GetCurrentInput();
+
+    /// <summary>
+    /// 渲染用户消息（用于恢复历史对话）
+    /// </summary>
+    void RenderUserMessage(string message);
+
+    /// <summary>
+    /// 渲染工具调用（用于恢复历史对话）
+    /// </summary>
+    void RenderToolCall(string formattedContent);
+
+    /// <summary>
+    /// 渲染思维链内容（用于恢复历史对话）
+    /// </summary>
+    void RenderReasoning(string content);
 }

@@ -1039,4 +1039,49 @@ public class ConsoleUserInterface : IUserInterface
             return _inputBuffer.ToString();
         }
     }
+
+    public void RenderUserMessage(string message)
+    {
+        // 保存到历史
+        _history.Add(new HistoryItem(HistoryType.UserMessage, message));
+        
+        SafeRender(() =>
+        {
+            Console.WriteLine($"\x1b[32m->\x1b[0m \x1b[1;37m{message}\x1b[0m");
+        });
+    }
+
+    public void RenderToolCall(string formattedContent)
+    {
+        // 保存到历史
+        _history.Add(new HistoryItem(HistoryType.ToolCall, formattedContent));
+        
+        SafeRender(() =>
+        {
+            // 工具调用内容已经是格式化的 Markup，直接输出
+            AnsiConsole.MarkupLine(formattedContent);
+        });
+    }
+
+    public void RenderReasoning(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return;
+        
+        // 保存到历史（使用 Response 类型，带特殊标记）
+        _history.Add(new HistoryItem(HistoryType.Response, content, "💭 思维链"));
+        
+        SafeRender(() =>
+        {
+            // 使用折叠面板显示思维链内容
+            var panel = new Panel(new Text(content))
+            {
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(Color.Grey),
+                Padding = new Padding(1, 0, 1, 0),
+                Header = new PanelHeader(" 💭 [dim]思维链 (Reasoning)[/] ", Justify.Left)
+            };
+            AnsiConsole.Write(panel);
+            AnsiConsole.WriteLine();
+        });
+    }
 }

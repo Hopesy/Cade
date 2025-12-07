@@ -2,4 +2,5 @@
   <Project Path="Cade.Tool/Cade.Tool.csproj" />
   <Project Path="Cade\Cade.csproj" />
   <Project Path="Cade.Provider\Cade.Provider.csproj" />
+  <Project Path="Cade.Data\Cade.Data.csproj" />
 </Solution>

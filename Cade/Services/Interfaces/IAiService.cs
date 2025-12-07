@@ -47,4 +47,19 @@ public interface IAiService
     /// 流式获取 AI 响应
     /// </summary>
     IAsyncEnumerable<string> GetStreamingResponseAsync(string input, string modelId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 从数据库消息恢复对话历史
+    /// </summary>
+    void RestoreHistory(IEnumerable<Cade.Data.Entities.ChatMessage> messages);
+
+    /// <summary>
+    /// 清空对话历史
+    /// </summary>
+    void ClearHistory();
+
+    /// <summary>
+    /// 设置工具调用回调（用于保存到数据库）
+    /// </summary>
+    void SetToolCallCallback(Func<string, string, Task>? callback);
 }
