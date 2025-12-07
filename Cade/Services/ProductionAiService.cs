@@ -107,9 +107,15 @@ public class ProductionAiService : IAiService
 
     public async Task<string> GetResponseAsync(string input, string modelId, CancellationToken cancellationToken)
     {
+        var response = await GetResponseWithReasoningAsync(input, modelId, cancellationToken);
+        return response.Content;
+    }
+
+    public async Task<AiResponse> GetResponseWithReasoningAsync(string input, string modelId, CancellationToken cancellationToken = default)
+    {
         var kernel = _providerService.GetKernel();
         if (kernel == null)
-            return "Kernel 未初始化，请检查配置。";
+            return new AiResponse { Content = "Kernel 未初始化，请检查配置。" };
 
         RegisterPlugins(kernel);
 
@@ -128,9 +134,54 @@ public class ProductionAiService : IAiService
             _logger.LogInformation("开始获取AI响应...");
             var response = await chatService.GetChatMessageContentAsync(_chatHistory, settings, kernel, cancellationToken);
             var result = response.Content ?? string.Empty;
-            _logger.LogInformation("AI响应完成，内容长度: {Length}", result.Length);
+            
+            // 尝试从 Metadata 获取 reasoning_content (DeepSeek reasoner 模型)
+            string? reasoningContent = null;
+            if (response.Metadata != null)
+            {
+                // 记录所有 metadata 用于调试
+                _logger.LogInformation("Response Metadata keys: {Keys}", 
+                    string.Join(", ", response.Metadata.Keys));
+                
+                // DeepSeek API 返回的 reasoning_content 可能在不同位置
+                foreach (var key in response.Metadata.Keys)
+                {
+                    var lowerKey = key.ToLowerInvariant();
+                    if (lowerKey.Contains("reason") || lowerKey.Contains("think"))
+                    {
+                        _logger.LogInformation("Found potential reasoning key: {Key} = {Value}", 
+                            key, response.Metadata[key]);
+                        reasoningContent ??= response.Metadata[key]?.ToString();
+                    }
+                }
+                
+                // 直接尝试常见键名
+                if (string.IsNullOrEmpty(reasoningContent))
+                {
+                    reasoningContent = response.Metadata.TryGetValue("reasoning_content", out var r1) ? r1?.ToString() : null;
+                    reasoningContent ??= response.Metadata.TryGetValue("ReasoningContent", out var r2) ? r2?.ToString() : null;
+                }
+            }
+            
+            // 检查 response.Items 中是否有 reasoning content
+            if (string.IsNullOrEmpty(reasoningContent) && response.Items != null)
+            {
+                foreach (var item in response.Items)
+                {
+                    _logger.LogInformation("Response Item type: {Type}", item.GetType().Name);
+                }
+            }
+            
+            _logger.LogInformation("AI响应完成，内容长度: {Length}, 有思维链: {HasReasoning}", 
+                result.Length, !string.IsNullOrEmpty(reasoningContent));
+            
             _chatHistory.AddAssistantMessage(result);
-            return result;
+            
+            return new AiResponse
+            {
+                Content = result,
+                ReasoningContent = reasoningContent
+            };
         }
         catch (OperationCanceledException)
         {
@@ -140,7 +191,7 @@ public class ProductionAiService : IAiService
         catch (Exception ex)
         {
             _logger.LogError(ex, "AI请求失败");
-            return $"请求失败: {ex.Message}";
+            return new AiResponse { Content = $"请求失败: {ex.Message}" };
         }
     }
 

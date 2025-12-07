@@ -1,4 +1,3 @@
-using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Cade.Provider.Models;
 using Cade.Provider.Services.Interfaces;
@@ -7,302 +6,212 @@ using Newtonsoft.Json.Linq;
 
 namespace Cade.Provider.Services;
 
-// 配置文件管理服务实现，服务中的方式是被主项目SettingPage页面的ViewModel所调用
-// 配置存储位置：{AppDirectory}/Data/Providers/*.json
-// 当前配置跟踪：通过appsettings.json中的AppSettings.CurrentProviderConfig跟记当前使用的配置
-// 默认配置处理：首次运行时从嵌入资源 Cade.Provider.Resources.default.json 自动提取默认配置
+/// <summary>
+/// 配置文件管理服务
+/// 配置存储位置：~/.cade/settings.json
+/// </summary>
 public class ProviderConfigService : IProviderConfigService
 {
     private readonly ILogger<ProviderConfigService> _logger;
-    private readonly string _configDirectory;
+    private readonly string _userConfigDirectory;
+    private readonly string _settingsFilePath;
     private readonly string _appSettingsFilePath;
     private string _currentConfigFileName = "default";
-    // 用户配置目录：~/.cade
-    private readonly string _userConfigDirectory;
-    
+
     public ProviderConfigService(ILogger<ProviderConfigService> logger)
     {
         _logger = logger;
-        // 配置文件目录：{AppDirectory}/Data/Providers
-        var appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-        _configDirectory = Path.Combine(appDirectory, "Data", "Providers");
-        // appsettings.json 文件路径
-        _appSettingsFilePath = Path.Combine(appDirectory, "appsettings.json");
+
         // 用户配置目录：~/.cade
         var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         _userConfigDirectory = Path.Combine(userProfile, ".cade");
+        _settingsFilePath = Path.Combine(_userConfigDirectory, "settings.json");
+
+        // appsettings.json 文件路径（用于保存当前选择的模型等）
+        _appSettingsFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+
         // 确保目录存在
-        Directory.CreateDirectory(_configDirectory);
         Directory.CreateDirectory(_userConfigDirectory);
-        // 从 appsettings.json 加载当前配置文件名
+
+        // 加载当前配置文件名
         LoadCurrentConfigFileName();
     }
-    public async Task<List<string>> GetAllConfigFilesAsync()
+
+    public Task<List<string>> GetAllConfigFilesAsync()
     {
-        try
-        {
-            await EnsureDefaultConfigExistsAsync();
-            var files = Directory.GetFiles(_configDirectory, "*.json")
-                .Select(Path.GetFileNameWithoutExtension)
-                .Where(name => !string.IsNullOrEmpty(name))
-                .ToList();
-            return files!;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "获取配置文件列表失败");
-            return new List<string>();
-        }
+        // 简化：只有一个配置文件
+        return Task.FromResult(new List<string> { "default" });
     }
-    // 加载指定名称的配置文件，返回ProviderConfig对象
+
+    /// <summary>
+    /// 从 ~/.cade/settings.json 加载配置
+    /// </summary>
     public async Task<ProviderConfig?> LoadConfigurationAsync(string fileName)
     {
         try
         {
-            var filePath = Path.Combine(_configDirectory, $"{fileName}.json");
-            if (!File.Exists(filePath))
+            if (!File.Exists(_settingsFilePath))
             {
-                _logger.LogWarning("配置文件不存在: {FileName}", fileName);
+                _logger.LogWarning("配置文件不存在: {Path}，请创建 ~/.cade/settings.json", _settingsFilePath);
                 return null;
             }
-            var json = await File.ReadAllTextAsync(filePath);
-            // 将json配置文件反序列化为配置对象
-            var config = JsonConvert.DeserializeObject<ProviderConfig>(json);
-            _logger.LogInformation("成功加载配置文件: {FileName}", fileName);
+
+            var json = await File.ReadAllTextAsync(_settingsFilePath);
+            var settingsObj = JObject.Parse(json);
+            var env = settingsObj["env"];
+
+            if (env == null)
+            {
+                _logger.LogWarning("settings.json 中缺少 env 配置节");
+                return null;
+            }
+
+            var apiKey = env["CADE_AUTH_TOKEN"]?.ToString();
+            var baseUrl = env["CADE_BASE_URL"]?.ToString();
+            var modelIds = env["CADE_DEFAULT_MODEL"]?.ToString();
+            var providerTypeStr = env["CADE_PROVIDE_TYPE"]?.ToString();
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                _logger.LogWarning("settings.json 中缺少 CADE_AUTH_TOKEN");
+                return null;
+            }
+
+            // 设置默认模型
+            if (string.IsNullOrWhiteSpace(modelIds))
+                modelIds = "gpt-4o";
+
+            // 解析 ProviderType
+            if (!Enum.TryParse<ProviderType>(providerTypeStr, true, out var providerType))
+                providerType = ProviderType.OpenAICompatible;
+
+            // 处理 BaseUrl，确保以 /v1 结尾
+            if (!string.IsNullOrWhiteSpace(baseUrl) && !baseUrl.EndsWith("/v1") && !baseUrl.EndsWith("/v1/"))
+                baseUrl = baseUrl.TrimEnd('/') + "/v1";
+
+            var config = new ProviderConfig
+            {
+                Type = providerType,
+                ApiKey = apiKey,
+                BaseUrl = baseUrl,
+                ModelIds = modelIds,
+                IsEnabled = true
+            };
+
+            _logger.LogInformation("成功从 {Path} 加载配置", _settingsFilePath);
             return config;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "加载配置文件失败: {FileName}", fileName);
+            _logger.LogError(ex, "加载配置文件失败: {Path}", _settingsFilePath);
             return null;
         }
     }
-    // 保存配置到JSON文件，将用户修改后的ProviderConfig对象写入文件，
+
     public async Task SaveConfigurationAsync(ProviderConfig configuration, string fileName)
     {
         try
         {
-            var filePath = Path.Combine(_configDirectory, $"{fileName}.json");
-            var json = JsonConvert.SerializeObject(configuration, Formatting.Indented);
-            await File.WriteAllTextAsync(filePath, json);
-            _logger.LogInformation("成功保存配置文件: {FileName}", fileName);
+            // 读取现有配置或创建新的
+            JObject settingsObj;
+            if (File.Exists(_settingsFilePath))
+            {
+                var existingJson = await File.ReadAllTextAsync(_settingsFilePath);
+                settingsObj = JObject.Parse(existingJson);
+            }
+            else
+            {
+                settingsObj = new JObject();
+            }
+
+            // 更新 env 节
+            settingsObj["env"] = new JObject
+            {
+                ["CADE_AUTH_TOKEN"] = configuration.ApiKey,
+                ["CADE_BASE_URL"] = configuration.BaseUrl?.TrimEnd('/').Replace("/v1", "") ?? "",
+                ["CADE_DEFAULT_MODEL"] = configuration.ModelIds,
+                ["CADE_PROVIDE_TYPE"] = configuration.Type.ToString()
+            };
+
+            await File.WriteAllTextAsync(_settingsFilePath, settingsObj.ToString(Formatting.Indented));
+            _logger.LogInformation("成功保存配置到 {Path}", _settingsFilePath);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "保存配置文件失败: {FileName}", fileName);
+            _logger.LogError(ex, "保存配置文件失败");
             throw;
         }
     }
-    // 创建新的提供商配置(默认为OpenAICompatible类型)
-    // 对应SettingPage的保存配置操作，内部调用SaveConfigurationAsync
+
     public async Task<ProviderConfig> CreateNewConfigAsync(string fileName)
     {
-        try
+        var newConfig = new ProviderConfig
         {
-            var newConfig = new ProviderConfig
-            {
-                Type = ProviderType.OpenAICompatible,
-                ApiKey = "your-api-key-here",
-                BaseUrl = null,
-                ModelIds = "gpt-4,gpt-4o",
-                IsEnabled = true
-            };
-            await SaveConfigurationAsync(newConfig, fileName);
-            _logger.LogInformation("成功创建新配置文件: {FileName}", fileName);
-            return newConfig;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "创建配置文件失败: {FileName}", fileName);
-            throw;
-        }
+            Type = ProviderType.OpenAICompatible,
+            ApiKey = "your-api-key-here",
+            BaseUrl = "https://api.openai.com",
+            ModelIds = "gpt-4o",
+            IsEnabled = true
+        };
+        await SaveConfigurationAsync(newConfig, fileName);
+        return newConfig;
     }
-    // 删除配置文件(保护默认配置不被删除)
-    public async Task DeleteConfigAsync(string fileName)
+
+    public Task DeleteConfigAsync(string fileName)
     {
-        try
-        {
-            // 不允许删除default.json配置文件
-            if (fileName.Equals("default", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException("不能删除默认配置文件");
-            }
-            var filePath = Path.Combine(_configDirectory, $"{fileName}.json");
-            if (File.Exists(filePath))
-            {
-                File.Delete(filePath);
-                _logger.LogInformation("成功删除配置文件: {FileName}", fileName);
-                // 如果删除的是当前配置，切换回默认配置:更新appsetting.json中的配置项
-                if (_currentConfigFileName.Equals(fileName, StringComparison.OrdinalIgnoreCase))
-                {
-                    await SetCurrentConfigFileNameAsync("default");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "删除配置文件失败: {FileName}", fileName);
-            throw;
-        }
+        // 不支持删除，只有一个配置文件
+        throw new InvalidOperationException("不能删除默认配置文件");
     }
-    // 验证配置的完整性和正确性
+
     public Task<string?> ValidateProviderConfigAsync(ProviderConfig providerConfig)
     {
-        try
-        {
-            // 基本验证
-            if (string.IsNullOrWhiteSpace(providerConfig.ApiKey))
-            {
-                return Task.FromResult<string?>("API密钥不能为空");
-            }
-            // 验证模型ID
-            if (string.IsNullOrWhiteSpace(providerConfig.ModelIds))
-            {
-                return Task.FromResult<string?>("模型ID不能为空");
-            }
-            // 兼容服务必须提供 BaseUrl
-            if ((providerConfig.Type == ProviderType.AnthropicCompatible ||
-                 providerConfig.Type == ProviderType.OpenAICompatible) &&
-                string.IsNullOrWhiteSpace(providerConfig.BaseUrl))
-            {
-                return Task.FromResult<string?>("兼容服务必须提供BaseUrl");
-            }
-            // 官方服务不应该有 BaseUrl
-            if ((providerConfig.Type == ProviderType.Anthropic ||
-                 providerConfig.Type == ProviderType.OpenAI) &&
-                !string.IsNullOrWhiteSpace(providerConfig.BaseUrl))
-            {
-                _logger.LogWarning("官方服务不需要BaseUrl，将被忽略");
-            }
-            _logger.LogInformation("配置验证通过: {ProviderType}", providerConfig.Type);
-            return Task.FromResult<string?>(null); // null 表示验证成功
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "配置验证失败: {ProviderType}", providerConfig.Type);
-            return Task.FromResult<string?>($"验证失败: {ex.Message}");
-        }
+        if (string.IsNullOrWhiteSpace(providerConfig.ApiKey))
+            return Task.FromResult<string?>("API密钥不能为空");
+
+        if (string.IsNullOrWhiteSpace(providerConfig.ModelIds))
+            return Task.FromResult<string?>("模型ID不能为空");
+
+        if ((providerConfig.Type == ProviderType.AnthropicCompatible ||
+             providerConfig.Type == ProviderType.OpenAICompatible) &&
+            string.IsNullOrWhiteSpace(providerConfig.BaseUrl))
+            return Task.FromResult<string?>("兼容服务必须提供BaseUrl");
+
+        return Task.FromResult<string?>(null);
     }
-    // 确保default.json配置文件存在，如果不存在手动从嵌入的资源中提取
+
+    /// <summary>
+    /// 确保配置文件存在，如果不存在则创建示例配置
+    /// </summary>
     public async Task EnsureDefaultConfigExistsAsync()
     {
-        try
+        if (File.Exists(_settingsFilePath))
+            return;
+
+        _logger.LogInformation("配置文件不存在，正在创建示例配置: {Path}", _settingsFilePath);
+
+        var exampleSettings = new JObject
         {
-            var defaultConfigPath = Path.Combine(_configDirectory, "default.json");
-            
-            // 优先尝试从用户配置目录 (~/.cade) 查找 settings.json 并同步配置
-            var settingsPath = Path.Combine(_userConfigDirectory, "settings.json");
-
-            if (File.Exists(settingsPath))
+            ["env"] = new JObject
             {
-                try
-                {
-                    _logger.LogInformation("发现 settings.json，正在尝试同步配置...");
-                    var settingsJson = await File.ReadAllTextAsync(settingsPath);
-                    var settingsObj = JObject.Parse(settingsJson);
-                    var env = settingsObj["env"];
-
-                    if (env != null)
-                    {
-                        var apiKey = env["CADE_AUTH_TOKEN"]?.ToString();
-                        var baseUrl = env["CADE_BASE_URL"]?.ToString();
-                        var modelId = env["CADE_DEFAULT_MODEL"]?.ToString();
-                        var providerTypeStr = env["CADE_PROVIDE_TYPE"]?.ToString();
-
-                        // 设置默认模型
-                        if (string.IsNullOrWhiteSpace(modelId)) modelId = "gpt-4o,gpt-4-turbo";
-                        
-                        // 解析ProviderType
-                        if (!Enum.TryParse<ProviderType>(providerTypeStr, true, out var providerType))
-                        {
-                            providerType = ProviderType.OpenAICompatible;
-                        }
-
-                        if (!string.IsNullOrWhiteSpace(apiKey))
-                        {
-                            // 处理 BaseUrl，确保以 v1 结尾（如果不是官方 OpenAI）
-                            if (!string.IsNullOrWhiteSpace(baseUrl) && !baseUrl.EndsWith("/v1") && !baseUrl.EndsWith("/v1/"))
-                            {
-                                baseUrl = baseUrl.TrimEnd('/') + "/v1";
-                            }
-
-                            var config = new ProviderConfig
-                            {
-                                Type = providerType,
-                                ApiKey = apiKey,
-                                BaseUrl = baseUrl,
-                                ModelIds = modelId,
-                                IsEnabled = true
-                            };
-
-                            // 总是用 settings.json 的内容覆盖 default.json，确保配置同步
-                            var json = JsonConvert.SerializeObject(config, Formatting.Indented);
-                            await File.WriteAllTextAsync(defaultConfigPath, json);
-                            _logger.LogInformation("成功从 settings.json 同步并生成 default.json 配置");
-                            return;
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "从 settings.json 读取配置失败，将尝试使用现有配置或嵌入资源");
-                }
+                ["CADE_AUTH_TOKEN"] = "your-api-key-here",
+                ["CADE_BASE_URL"] = "https://api.openai.com",
+                ["CADE_DEFAULT_MODEL"] = "gpt-4o",
+                ["CADE_PROVIDE_TYPE"] = "OpenAICompatible"
             }
+        };
 
-            // 如果默认配置已存在（且没有被上面的逻辑覆盖），则不需要提取
-            if (File.Exists(defaultConfigPath))
-            {
-                return;
-            }
-            _logger.LogInformation("默认配置不存在，正在从嵌入资源中提取...");
-            // 从嵌入资源中读取 default.json
-            var assembly = Assembly.GetExecutingAssembly();
-            // 注意：命名空间需要与嵌入资源一致
-            var resourceName = "Cade.Provider.Resources.default.json";
-            await using var stream = assembly.GetManifestResourceStream(resourceName);
-            if (stream == null)
-            {
-                _logger.LogError("无法找到嵌入资源: {ResourceName}", resourceName);
-                // 列出所有资源名称以供调试
-                var resources = assembly.GetManifestResourceNames();
-                _logger.LogError("可用资源: {Resources}", string.Join(", ", resources));
-
-                throw new FileNotFoundException($"嵌入资源不存在: {resourceName}");
-            }
-            // 读取并写入到文件
-            using var reader = new StreamReader(stream);
-            var content = await reader.ReadToEndAsync();
-            await File.WriteAllTextAsync(defaultConfigPath, content);
-            _logger.LogInformation("成功提取默认配置文件");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "确保默认配置存在时发生错误");
-            throw;
-        }
+        await File.WriteAllTextAsync(_settingsFilePath, exampleSettings.ToString(Formatting.Indented));
+        _logger.LogInformation("已创建示例配置文件，请编辑 {Path} 填入正确的 API 密钥", _settingsFilePath);
     }
-    public string GetCurrentConfigFileName()
-    {
-        return _currentConfigFileName;
-    }
+
+    public string GetCurrentConfigFileName() => _currentConfigFileName;
+
     public async Task SetCurrentConfigFileNameAsync(string fileName)
     {
-        try
-        {
-            _currentConfigFileName = fileName;
-
-            // 保存到 appsettings.json
-            await UpdateAppSettingsAsync("CurrentProviderConfig", fileName);
-
-            _logger.LogInformation("已切换到配置文件: {FileName}", fileName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "设置当前配置文件名失败: {FileName}", fileName);
-            throw;
-        }
+        _currentConfigFileName = fileName;
+        await UpdateAppSettingsAsync("CurrentProviderConfig", fileName);
     }
-    // 从appsettings.json加载当前配置文件名(直接读取的文件)
+
     private void LoadCurrentConfigFileName()
     {
         try
@@ -312,43 +221,32 @@ public class ProviderConfigService : IProviderConfigService
                 var json = File.ReadAllText(_appSettingsFilePath);
                 var jObject = JObject.Parse(json);
                 var appSettings = jObject["AppSettings"];
-                if (appSettings != null && appSettings["CurrentProviderConfig"] != null)
+                if (appSettings?["CurrentProviderConfig"] != null)
                 {
                     _currentConfigFileName = appSettings["CurrentProviderConfig"]!.ToString();
-                    _logger.LogInformation("从appsettings.json加载当前使用的配置文件名: {FileName}", _currentConfigFileName);
-                }
-                else
-                {
-                    _logger.LogInformation("appsettings.json 中未找到 CurrentProviderConfig，使用默认值");
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "从 appsettings.json 加载当前配置文件名失败，使用默认值");
+            _logger.LogWarning(ex, "加载当前配置文件名失败，使用默认值");
             _currentConfigFileName = "default";
         }
     }
-    // 更新appsettings.json中的配置项
+
     private async Task UpdateAppSettingsAsync(string key, string value)
     {
         try
         {
-            // 读取或创建JSON内容
             var json = File.Exists(_appSettingsFilePath) ? await File.ReadAllTextAsync(_appSettingsFilePath) : "{}";
             var jObject = JObject.Parse(json);
-            // 确保AppSettings节点存在
             jObject["AppSettings"] ??= new JObject();
-            // 更新指定的键值对
             jObject["AppSettings"]![key] = value;
-            // 写回文件
             await File.WriteAllTextAsync(_appSettingsFilePath, jObject.ToString(Formatting.Indented));
-            _logger.LogInformation("成功更新appsettings.json: {Key} = {Value}", key, value);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "更新 appsettings.json 失败");
-            throw;
         }
     }
 }

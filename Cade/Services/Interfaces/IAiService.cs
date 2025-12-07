@@ -11,6 +11,16 @@ public class ToolCallEventArgs : EventArgs
     public bool Success { get; set; }
 }
 
+/// <summary>
+/// AI 响应结果（包含内容和思维链）
+/// </summary>
+public class AiResponse
+{
+    public string Content { get; set; } = string.Empty;
+    public string? ReasoningContent { get; set; }
+    public bool HasReasoning => !string.IsNullOrEmpty(ReasoningContent);
+}
+
 public interface IAiService
 {
     /// <summary>
@@ -27,6 +37,11 @@ public interface IAiService
     /// 获取 AI 响应 (支持取消)
     /// </summary>
     Task<string> GetResponseAsync(string input, string modelId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// 获取 AI 响应（包含思维链）
+    /// </summary>
+    Task<AiResponse> GetResponseWithReasoningAsync(string input, string modelId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 流式获取 AI 响应

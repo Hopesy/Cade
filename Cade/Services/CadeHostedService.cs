@@ -44,6 +44,7 @@ public class CadeHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // 初始化 Provider 和模型
+        bool configMissing = false;
         try 
         {
             await _configService.EnsureDefaultConfigExistsAsync();
@@ -59,9 +60,7 @@ public class CadeHostedService : BackgroundService
             }
             else
             {
-                 config = await _configService.LoadConfigurationAsync("default");
-                 if (config != null)
-                    await _providerService.LoadModelsFromConfigAsync(config, "default");
+                configMissing = true;
             }
 
             var savedModelId = _configuration["AppSettings:CurrentModelId"];
@@ -69,29 +68,70 @@ public class CadeHostedService : BackgroundService
             
             if (availableModels.Any())
             {
-                if (!string.IsNullOrEmpty(savedModelId) && availableModels.Any(m => m.Id == savedModelId))
+                // 提取保存的模型名称（去掉前缀）
+                var savedModelName = savedModelId;
+                if (!string.IsNullOrEmpty(savedModelId))
                 {
-                    _viewModel.CurrentModelId = savedModelId;
+                    var underscoreIndex = savedModelId.IndexOf('_');
+                    if (underscoreIndex >= 0)
+                        savedModelName = savedModelId.Substring(underscoreIndex + 1);
                 }
-                else
+                
+                // 尝试匹配模型名称
+                var matchedModel = availableModels.FirstOrDefault(m =>
                 {
-                    _viewModel.CurrentModelId = availableModels.First().Id;
-                }
+                    var modelName = m.Id;
+                    var idx = m.Id.IndexOf('_');
+                    if (idx >= 0)
+                        modelName = m.Id.Substring(idx + 1);
+                    return modelName == savedModelName;
+                });
+                
+                _viewModel.CurrentModelId = matchedModel?.Id ?? availableModels.First().Id;
             }
             else
             {
-                _viewModel.CurrentModelId = "No Models Available";
+                // 没有可用模型，提示用户配置
+                configMissing = true;
+                _viewModel.CurrentModelId = "⚠ 未配置";
             }
             
             _viewModel.Theme = _configuration["AppSettings:Theme"] ?? "Dark";
+            
+            // 加载思维链显示设置
+            var showReasoningStr = _configuration["AppSettings:ShowReasoning"];
+            _viewModel.ShowReasoning = bool.TryParse(showReasoningStr, out var showReasoning) && showReasoning;
 
         }
         catch(Exception ex)
         {
+            configMissing = true;
             _ui.ShowError($"初始化AI服务失败: {ex.Message}");
         }
 
         _ui.ShowWelcome();
+        
+        // 如果配置缺失，显示配置提示
+        if (configMissing)
+        {
+            var configPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".cade", "settings.json");
+            
+            _ui.ShowResponse(
+                "[yellow]⚠ 未检测到有效的模型配置[/]\n\n" +
+                $"请编辑配置文件: [cyan]{configPath}[/]\n\n" +
+                "配置示例:\n" +
+                "[dim]{\n" +
+                "  \"env\": {\n" +
+                "    \"CADE_AUTH_TOKEN\": \"your-api-key\",\n" +
+                "    \"CADE_BASE_URL\": \"https://api.openai.com\",\n" +
+                "    \"CADE_DEFAULT_MODEL\": \"gpt-4o\",\n" +
+                "    \"CADE_PROVIDE_TYPE\": \"OpenAICompatible\"\n" +
+                "  }\n" +
+                "}[/]\n\n" +
+                "配置完成后重启程序即可使用。");
+        }
 
         // 主交互循环
         while (!stoppingToken.IsCancellationRequested)
@@ -104,6 +144,13 @@ public class CadeHostedService : BackgroundService
                 if (key.Key == ConsoleKey.Escape)
                 {
                     CancelCurrentTask();
+                    continue;
+                }
+                
+                // Tab 键切换思考模式（仅在输入为空时）
+                if (key.Key == ConsoleKey.Tab && string.IsNullOrEmpty(_ui.GetCurrentInput()))
+                {
+                    await HandleThinkCommand();
                     continue;
                 }
                 
@@ -127,7 +174,7 @@ public class CadeHostedService : BackgroundService
             
             // Sync Status
             _viewModel.CurrentPath = Environment.CurrentDirectory;
-            _ui.SetStatus(_viewModel.CurrentPath, _viewModel.CurrentModelId);
+            _ui.SetStatus(_viewModel.CurrentPath, _viewModel.CurrentModelId, _viewModel.ShowReasoning);
             
             _ui.Update();
             await Task.Delay(10, stoppingToken);
@@ -174,6 +221,12 @@ public class CadeHostedService : BackgroundService
 
             // 收到回复后，停止思考动画
             _ui.SetProcessing(false);
+
+            // 如果开启了思维链显示且有思维链内容，先显示思维链
+            if (_viewModel.ShowReasoning && !string.IsNullOrEmpty(_viewModel.LastReasoningContent))
+            {
+                _ui.ShowReasoning(_viewModel.LastReasoningContent);
+            }
 
             // 提取回复的第一句话作为总结，显示完整回复（跳过第一行避免重复）
             var summary = ExtractSummary(_viewModel.LastResponse);
@@ -253,14 +306,17 @@ public class CadeHostedService : BackgroundService
                 await HandleModelCommand();
                 break;
 
+            case "/think":
+                await HandleThinkCommand();
+                break;
+
             case "/help":
-                _ui.ShowResponse("""
-                [bold]可用命令 (Available Commands):[/]
-                
-                * [green]/model[/]: 切换 AI 模型 (Switch AI Model)
-                * [green]/exit[/] 或 [green]/quit[/]: 退出程序 (Exit)
-                * [green]/help[/]: 显示此帮助信息 (Show Help)
-                """);
+                _ui.ShowResponse(
+                    "[bold]可用命令 (Available Commands):[/]\n\n" +
+                    "* [green]/model[/]: 切换 AI 模型 (Switch AI Model)\n" +
+                    "* [green]/think[/]: 切换思考模式 (Toggle Think Mode) - Tab 快捷键\n" +
+                    "* [green]/exit[/] 或 [green]/quit[/]: 退出程序 (Exit)\n" +
+                    "* [green]/help[/]: 显示此帮助信息 (Show Help)");
                 break;
 
             default:
@@ -301,8 +357,27 @@ public class CadeHostedService : BackgroundService
         {
             _viewModel.CurrentModelId = selectedModel;
             await UpdateAppSettingsAsync("CurrentModelId", selectedModel);
-            _ui.ShowResponse($"已切换模型为: [bold green]{selectedModel}[/]");
+            
+            // 立即更新状态栏显示
+            _ui.SetStatus(_viewModel.CurrentPath, _viewModel.CurrentModelId);
+            
+            // 显示模型名称（去掉 uuid 前缀）
+            var displayName = selectedModel;
+            var underscoreIndex = selectedModel.IndexOf('_');
+            if (underscoreIndex >= 0)
+                displayName = selectedModel.Substring(underscoreIndex + 1);
+            
+            _ui.ShowResponse($"已切换模型为: [bold green]{displayName}[/]");
         }
+    }
+
+    private async Task HandleThinkCommand()
+    {
+        _viewModel.ShowReasoning = !_viewModel.ShowReasoning;
+        await UpdateAppSettingsAsync("ShowReasoning", _viewModel.ShowReasoning.ToString().ToLower());
+        
+        // 直接更新状态栏，不输出消息
+        _ui.SetStatus(_viewModel.CurrentPath, _viewModel.CurrentModelId, _viewModel.ShowReasoning);
     }
 
     private async Task UpdateAppSettingsAsync(string key, string value)

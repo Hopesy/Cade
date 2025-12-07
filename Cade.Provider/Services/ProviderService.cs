@@ -39,7 +39,8 @@ public class ProviderService : IProviderService
 
             _logger.LogInformation("开始加载配置: {ConfigName}, 类型: {Type}", configName, configuration.Type);
 
-            configuration.Id = Guid.NewGuid().ToString();
+            // 使用配置名称作为固定 ID，而不是每次生成新的 UUID
+            configuration.Id = configName;
             configuration.Name = configName;
             _providerConfigs[configuration.Id] = configuration;
 
@@ -164,5 +165,10 @@ public class ProviderService : IProviderService
         _modelConfigs.Clear();
         _providerConfigs.Clear();
         _logger.LogInformation("已清除所有模型配置");
+    }
+
+    public ProviderConfig? GetCurrentConfig()
+    {
+        return _providerConfigs.Values.FirstOrDefault();
     }
 }

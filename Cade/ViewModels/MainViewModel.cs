@@ -26,6 +26,12 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _theme = "Dark";
 
+    [ObservableProperty]
+    private bool _showReasoning = false;
+
+    [ObservableProperty]
+    private string _lastReasoningContent = string.Empty;
+
     public MainViewModel(IAiService aiService)
     {
         _aiService = aiService;
@@ -57,7 +63,9 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            LastResponse = await _aiService.GetResponseAsync(CurrentInput, CurrentModelId, cancellationToken);
+            var response = await _aiService.GetResponseWithReasoningAsync(CurrentInput, CurrentModelId, cancellationToken);
+            LastResponse = response.Content;
+            LastReasoningContent = response.ReasoningContent ?? string.Empty;
         }
         finally
         {

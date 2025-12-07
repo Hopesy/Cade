@@ -11,6 +11,7 @@ public record CommandDefinition(string Name, string Description, string[]? Alias
     public static readonly CommandDefinition[] AllCommands =
     [
         new("/model", "切换 AI 模型"),
+        new("/think", "切换思考模式 (Tab 快捷键)"),
         new("/help", "显示帮助信息"),
         new("/clear", "清空对话历史"),
         new("/exit", "退出程序", ["/quit"])

@@ -79,23 +79,26 @@ public class ConsoleUserInterface : IUserInterface
                 .LeftJustified());
 
         // 提示信息
-        AnsiConsole.MarkupLine("[bold]Tips for getting started:[/]");
-        AnsiConsole.MarkupLine("  [grey]1.[/] Ask questions, edit files, or run commands.");
-        AnsiConsole.MarkupLine("  [grey]2.[/] Be specific for the best results.");
-        AnsiConsole.MarkupLine("  [grey]3.[/] [cyan]/help[/] for more information.");
+        AnsiConsole.MarkupLine("[bold]Tips:[/]");
+        AnsiConsole.MarkupLine("  [grey]•[/] Ask questions, edit files, or run commands");
+        AnsiConsole.MarkupLine("  [grey]•[/] [cyan]Tab[/] toggle think mode, [cyan]Esc[/] cancel task");
+        AnsiConsole.MarkupLine("  [grey]•[/] [cyan]/help[/] for commands, [cyan]/model[/] switch model");
 
         AnsiConsole.WriteLine();
 
         RenderBottomArea();
     }
 
-    public void SetStatus(string path, string modelId)
+    private bool _showThink = false;
+
+    public void SetStatus(string path, string modelId, bool showThink = false)
     {
         lock (_consoleLock)
         {
-            bool changed = _currentPath != path || _currentModelId != modelId;
+            bool changed = _currentPath != path || _currentModelId != modelId || _showThink != showThink;
             _currentPath = path;
             _currentModelId = modelId;
+            _showThink = showThink;
             
             // 如果状态改变且底部区域已渲染，则重绘
             if (changed && _bottomAreaStartLine >= 0)
@@ -675,6 +678,7 @@ public class ConsoleUserInterface : IUserInterface
                     pathDisplay = "~" + pathDisplay.Substring(userProfile.Length);
                 }
                 
+                // 构建右侧显示：Think: On/Off + 模型名称
                 string modelDisplay = "";
                 if (!string.IsNullOrEmpty(_currentModelId))
                 {
@@ -682,21 +686,31 @@ public class ConsoleUserInterface : IUserInterface
                     modelDisplay = underscoreIndex >= 0 ? _currentModelId.Substring(underscoreIndex + 1) : _currentModelId;
                 }
                 
-                int maxPathLen = safeWidth - modelDisplay.Length - 3;
+                string thinkDisplay = _showThink ? "Think: On | " : "";
+                string rightDisplay = thinkDisplay + modelDisplay;
+                
+                int maxPathLen = safeWidth - rightDisplay.Length - 3;
                 if (maxPathLen > 0 && pathDisplay.Length > maxPathLen)
                 {
                     pathDisplay = "..." + pathDisplay.Substring(pathDisplay.Length - maxPathLen + 3);
                 }
                 
-                int modelStartPos = safeWidth - modelDisplay.Length;
-                if (modelStartPos < pathDisplay.Length + 1) modelStartPos = pathDisplay.Length + 1;
+                int rightStartPos = safeWidth - rightDisplay.Length;
+                if (rightStartPos < pathDisplay.Length + 1) rightStartPos = pathDisplay.Length + 1;
                 
                 AnsiConsole.Markup($"[grey]{Markup.Escape(pathDisplay)}[/]");
                 
-                if (!string.IsNullOrEmpty(modelDisplay) && modelStartPos < safeWidth)
+                if (!string.IsNullOrEmpty(rightDisplay) && rightStartPos < safeWidth)
                 {
-                    Console.SetCursorPosition(modelStartPos, Console.CursorTop);
-                    AnsiConsole.Markup($"[cyan]{Markup.Escape(modelDisplay)}[/]");
+                    Console.SetCursorPosition(rightStartPos, Console.CursorTop);
+                    if (_showThink)
+                    {
+                        AnsiConsole.Markup($"[green]Think: On[/] | [cyan]{Markup.Escape(modelDisplay)}[/]");
+                    }
+                    else
+                    {
+                        AnsiConsole.Markup($"[cyan]{Markup.Escape(modelDisplay)}[/]");
+                    }
                 }
             }
 
@@ -818,6 +832,25 @@ public class ConsoleUserInterface : IUserInterface
         {
             // 既然动画逻辑已移除，这里只需简单显示总结头部即可
             AnsiConsole.MarkupLine($"[{PrimaryColor.ToMarkup()}]⋮[/] {Markup.Escape(summary)}");
+            AnsiConsole.WriteLine();
+        });
+    }
+
+    public void ShowReasoning(string reasoningContent)
+    {
+        if (string.IsNullOrWhiteSpace(reasoningContent)) return;
+
+        SafeRender(() =>
+        {
+            // 使用折叠面板显示思维链内容
+            var panel = new Panel(new Text(reasoningContent))
+            {
+                Border = BoxBorder.Rounded,
+                BorderStyle = new Style(Color.Grey),
+                Padding = new Padding(1, 0, 1, 0),
+                Header = new PanelHeader(" 💭 [dim]思维链 (Reasoning)[/] ", Justify.Left)
+            };
+            AnsiConsole.Write(panel);
             AnsiConsole.WriteLine();
         });
     }
@@ -996,6 +1029,14 @@ public class ConsoleUserInterface : IUserInterface
             {
                 AnsiConsole.Markup($"[dim]  {Markup.Escape(choices[i])}[/]");
             }
+        }
+    }
+
+    public string GetCurrentInput()
+    {
+        lock (_consoleLock)
+        {
+            return _inputBuffer.ToString();
         }
     }
 }

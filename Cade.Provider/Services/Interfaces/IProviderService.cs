@@ -47,4 +47,9 @@ public interface IProviderService
     /// 清除所有已加载的模型
     /// </summary>
     void ClearModels();
+
+    /// <summary>
+    /// 获取当前配置
+    /// </summary>
+    ProviderConfig? GetCurrentConfig();
 }

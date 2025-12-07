@@ -5,6 +5,7 @@ public interface IUserInterface
     void ShowWelcome();
     void ShowResponse(string content, string? header = null);
     void ShowResponseHeader(string summary); // 新增：显示回复头部（带动画的点 + 总结）
+    void ShowReasoning(string reasoningContent); // 显示思维链内容
     void ShowError(string message);
     void ShowToolLog(string toolName, string command, string output);
     void ShowLog(string message);
@@ -13,7 +14,7 @@ public interface IUserInterface
     bool KeyAvailable { get; }
     string? HandleKeyPress(ConsoleKeyInfo keyInfo);
     void SetProcessing(bool isProcessing, string? title = null);
-    void SetStatus(string path, string modelId);
+    void SetStatus(string path, string modelId, bool showThink = false);
     void SafeRender(Action action);
     void Update();
     
@@ -30,4 +31,9 @@ public interface IUserInterface
     /// <param name="options">选项列表 (显示文本, 值)</param>
     /// <returns>选中的值，ESC 取消返回 null</returns>
     string? ShowSelectionMenu(string title, string? description, IEnumerable<(string Display, string Value)> options);
+
+    /// <summary>
+    /// 获取当前输入内容
+    /// </summary>
+    string GetCurrentInput();
 }
