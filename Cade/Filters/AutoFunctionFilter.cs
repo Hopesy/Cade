@@ -1,4 +1,4 @@
-using Cade.Interfaces;
+using Cade.Services.Interfaces;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Spectre.Console;

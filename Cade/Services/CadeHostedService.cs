@@ -1,12 +1,12 @@
+using Cade.Provider.Services.Interfaces;
+using Cade.Services.Interfaces;
+using Cade.ViewModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
-using Cade.Interfaces;
-using Cade.ViewModels;
-using Cade.Provider.Services.Interfaces;
-using Spectre.Console;
 using Newtonsoft.Json.Linq;
+using Spectre.Console;
 
-namespace Cade;
+namespace Cade.Services;
 
 public class CadeHostedService : BackgroundService
 {

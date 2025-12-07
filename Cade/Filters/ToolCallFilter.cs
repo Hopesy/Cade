@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text;
-using Cade.Interfaces;
+using Cade.Services.Interfaces;
 using Microsoft.SemanticKernel;
 using Spectre.Console;
 

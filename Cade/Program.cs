@@ -4,7 +4,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using Cade;
-using Cade.Interfaces;
 using Cade.Services;
 using Cade.ViewModels;
 using Cade.Tool.Plugins;
@@ -12,6 +11,7 @@ using Cade.Provider.Mcp;
 using Cade.Provider.Models;
 using Cade.Provider.Services;
 using Cade.Provider.Services.Interfaces;
+using Cade.Services.Interfaces;
 
 // 构建 Host
 var builder = Host.CreateApplicationBuilder(args);

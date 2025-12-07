@@ -1,6 +1,6 @@
+using Cade.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Cade.Interfaces;
 
 namespace Cade.ViewModels;
 

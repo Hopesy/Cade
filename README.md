@@ -10,8 +10,6 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![Semantic Kernel](https://img.shields.io/badge/Semantic%20Kernel-1.68.0-blue)](https://github.com/microsoft/semantic-kernel)
 
-[English](#) | 简体中文
-
 </div>
 
 ---
@@ -29,8 +27,6 @@
 
 ## 🚀 快速开始
 
-### 安装方式一：作为全局工具安装（推荐）
-
 ```bash
 # 从 NuGet 安装
 dotnet tool install --global Cade
@@ -38,24 +34,6 @@ dotnet tool install --global Cade
 # 运行
 cade
 ```
-
-### 安装方式二：从源码编译
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/hopesy/Cade.git
-cd Cade
-
-# 2. 还原依赖
-dotnet restore
-
-# 3. 编译项目
-dotnet build
-
-# 4. 运行
-dotnet run --project Cade
-```
-
 ---
 
 ## 🔧 配置

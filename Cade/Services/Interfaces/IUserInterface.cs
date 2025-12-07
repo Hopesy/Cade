@@ -1,7 +1,4 @@
-using System;
-using System.Threading.Tasks;
-
-namespace Cade.Interfaces;
+namespace Cade.Services.Interfaces;
 
 public interface IUserInterface
 {

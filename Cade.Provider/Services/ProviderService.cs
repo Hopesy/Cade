@@ -1,8 +1,10 @@
+using Cade.Provider.Models;
+using Cade.Provider.Services.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
-using Cade.Provider.Models;
-using Cade.Provider.Services.Interfaces;
+
+namespace Cade.Provider.Services;
 
 /// <summary>
 /// AI 服务管理实现 (基于 Semantic Kernel)

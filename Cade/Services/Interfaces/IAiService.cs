@@ -1,4 +1,4 @@
-namespace Cade.Interfaces;
+namespace Cade.Services.Interfaces;
 
 /// <summary>
 /// 工具调用日志事件参数

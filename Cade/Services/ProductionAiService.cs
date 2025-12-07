@@ -1,8 +1,8 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using Cade.Filters;
-using Cade.Interfaces;
 using Cade.Provider.Services.Interfaces;
+using Cade.Services.Interfaces;
 using Cade.Tool.Plugins;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
