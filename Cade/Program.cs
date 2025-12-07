@@ -16,10 +16,14 @@ using Cade.Services.Interfaces;
 // 构建 Host
 var builder = Host.CreateApplicationBuilder(args);
 
-// 配置 Serilog 日志
+// 配置 Serilog 日志 - 日志存放在 ~/.cade/logs/
+var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+var logPath = Path.Combine(userProfile, ".cade", "logs", "Cade.log");
+Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
+
 builder.Logging.ClearProviders();
 builder.Logging.AddSerilog(new LoggerConfiguration()
-    .WriteTo.File("Logs/Cade.log", rollingInterval: RollingInterval.Day)
+    .WriteTo.File(logPath, rollingInterval: RollingInterval.Day)
     .CreateLogger());
 
 // 加载 settings.json 配置 (MCP 配置)
