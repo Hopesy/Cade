@@ -30,6 +30,8 @@
 
 ## 🚀 快速开始
 
+### 安装
+
 ```bash
 # 从 NuGet 安装
 dotnet tool install --global Cade
@@ -37,6 +39,22 @@ dotnet tool install --global Cade
 # 运行
 cade
 ```
+
+### 更新
+
+Cade 启动时会自动检查新版本，如有更新会显示提示。手动更新：
+
+```bash
+dotnet tool update --global Cade
+```
+
+### 卸载
+
+```bash
+# 卸载工具
+dotnet tool uninstall --global Cade
+```
+
 ---
 
 ## 🔧 配置
