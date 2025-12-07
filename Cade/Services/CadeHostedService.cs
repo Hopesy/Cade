@@ -5,6 +5,7 @@ using Cade.Data.Entities;
 using Cade.Data.Services.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
 using Spectre.Console;
 
@@ -20,6 +21,7 @@ public class CadeHostedService : BackgroundService
     private readonly IConfiguration _configuration;
     private readonly IAiService _aiService;
     private readonly IChatDataService _chatDataService;
+    private readonly ILogger<CadeHostedService> _logger;
     
     // 当前会话
     private ChatSession? _currentSession;
@@ -36,7 +38,8 @@ public class CadeHostedService : BackgroundService
         IProviderService providerService,
         IConfiguration configuration,
         IAiService aiService,
-        IChatDataService chatDataService)
+        IChatDataService chatDataService,
+        ILogger<CadeHostedService> logger)
     {
         _ui = ui;
         _viewModel = viewModel;
@@ -46,10 +49,14 @@ public class CadeHostedService : BackgroundService
         _configuration = configuration;
         _aiService = aiService;
         _chatDataService = chatDataService;
+        _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // 后台检查更新（不阻塞启动）
+        _ = CheckForUpdateAsync();
+        
         // 初始化 Provider 和模型
         bool configMissing = false;
         try 
@@ -542,6 +549,26 @@ public class CadeHostedService : BackgroundService
         catch (Exception ex)
         {
             _ui.ShowError($"保存配置失败: {ex.Message}");
+        }
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        try
+        {
+            var checker = new UpdateChecker();
+            var newVersion = await checker.CheckForUpdateAsync();
+            
+            if (!string.IsNullOrEmpty(newVersion))
+            {
+                // 延迟显示，等待欢迎界面渲染完成
+                await Task.Delay(500);
+                _ui.ShowResponse(UpdateChecker.GetUpdateMessage(newVersion));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "检查更新时出错");
         }
     }
 }
